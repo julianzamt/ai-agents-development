@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentes-ia"
+version = "0.1.0"
+description = "Proyecto integrador del curso de desarrollo de agentes de IA"
+requires-python = ">=3.10"
+dynamic = ["dependencies"]
+
+[project.scripts]
+client = "agentes_ia.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}

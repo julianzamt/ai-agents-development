@@ -1,0 +1,117 @@
+"""Provider SDK adapters; each returns the original response."""
+
+import os
+
+def call_bedrock(prompt, system=None, temperature=0.7, max_tokens=500, history=None):
+    import boto3
+    from botocore.config import Config
+
+    # Keep retries in LLMClient instead of multiplying them with SDK retries.
+    with boto3.client(
+        "bedrock-runtime",
+        region_name=os.environ.get("AWS_REGION", "us-east-1"),
+        config=Config(
+            connect_timeout=10,
+            read_timeout=60,
+            retries={"total_max_attempts": 1},
+        ),
+    ) as client:
+        request = {
+            "modelId": os.environ.get(
+                "BEDROCK_MODEL_ID_CLAUDE", "global.anthropic.claude-sonnet-4-6"
+            ),
+            "messages": list(history or []) + [{"role": "user", "content": [{"text": prompt}]}],
+            "inferenceConfig": {
+                "temperature": temperature,
+                "maxTokens": max_tokens,
+            },
+        }
+        if system is not None:
+            request["system"] = [{"text": system}]
+        response = client.converse(**request)
+    return response
+
+
+def call_anthropic(prompt, system=None, temperature=0.7, max_tokens=500, history=None):
+    from anthropic import Anthropic
+
+    with Anthropic(
+        api_key=os.environ["ANTHROPIC_API_KEY"], max_retries=0, timeout=60
+    ) as client:
+        request = {
+            "model": os.environ.get("ANTHROPIC_MODEL_ID", "claude-sonnet-4-6"),
+            "max_tokens": max_tokens,
+            "messages": list(history or []) + [{"role": "user", "content": prompt}],
+        }
+        # As in the notebook, omit temperature: some Claude models reject it.
+        if system is not None:
+            request["system"] = system
+        response = client.messages.create(**request)
+    return response
+
+
+def call_openai(prompt, system=None, temperature=0.7, max_tokens=500, history=None):
+    from openai import OpenAI
+
+    messages = []
+    if system is not None:
+        messages.append({"role": "system", "content": system})
+    messages.extend(history or [])
+    messages.append({"role": "user", "content": prompt})
+    with OpenAI(
+        api_key=os.environ["OPENAI_API_KEY"], max_retries=0, timeout=60
+    ) as client:
+        response = client.chat.completions.create(
+            model=os.environ.get("OPENAI_MODEL_ID", "gpt-4o"),
+            messages=messages,
+            temperature=temperature,
+            max_completion_tokens=max_tokens,
+        )
+    return response
+
+
+def call_google(prompt, system=None, temperature=0.7, max_tokens=500, history=None):
+    from google import genai
+    from google.genai import types
+
+    with genai.Client(
+        api_key=os.environ["GOOGLE_API_KEY"],
+        http_options=types.HttpOptions(
+            timeout=60_000,
+            retry_options=types.HttpRetryOptions(attempts=1),
+        ),
+    ) as client:
+        response = client.models.generate_content(
+            model=os.environ.get("GOOGLE_MODEL_ID", "gemini-3.5-flash-lite"),
+            contents=(list(history) + [{"role": "user", "parts": [{"text": prompt}]}])
+            if history else prompt,
+            config=types.GenerateContentConfig(
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                    disable=True,
+                ),
+                system_instruction=system,
+                temperature=temperature,
+                max_output_tokens=max_tokens,
+            ),
+        )
+    return response
+
+
+def call_ollama(prompt, system=None, temperature=0.7, max_tokens=500, history=None):
+    from ollama import Client
+
+    messages = []
+    if system is not None:
+        messages.append({"role": "system", "content": system})
+    messages.extend(history or [])
+    messages.append({"role": "user", "content": prompt})
+    client = Client(host=os.environ.get("OLLAMA_HOST"), timeout=60)
+    try:
+        response = client.chat(
+            model=os.environ.get("OLLAMA_MODEL_ID", "llama3.1"),
+            messages=messages,
+            options={"temperature": temperature, "num_predict": max_tokens},
+        )
+        return response
+    finally:
+        client.close()

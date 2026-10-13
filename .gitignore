@@ -2,3 +2,10 @@
 .venv/
 __pycache__/
 *.pyc
+
+# Local conversation and settings
+data/*.json
+
+*.egg-info/
+build/
+dist/

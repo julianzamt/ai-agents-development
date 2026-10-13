@@ -1,0 +1,129 @@
+"""LLM client validation, retries and batch execution."""
+
+import logging
+import math
+import os
+import time
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any
+
+from dotenv import load_dotenv
+
+from . import providers
+from .config import PROJECT_ROOT
+from .errors import classify_error
+from .responses import format_response
+
+logger = logging.getLogger(__name__)
+
+
+class LLMClient:
+    def __init__(self):
+        load_dotenv(PROJECT_ROOT / ".env")
+        self.provider = os.environ.get("LLM_PROVIDER", "bedrock")
+        credentials = {
+            "bedrock": "AWS_BEARER_TOKEN_BEDROCK",
+            "anthropic": "ANTHROPIC_API_KEY",
+            "openai": "OPENAI_API_KEY",
+            "google": "GOOGLE_API_KEY",
+            "ollama": None,
+        }
+        if self.provider not in credentials:
+            raise ValueError(
+                f"Unsupported LLM_PROVIDER '{self.provider}'. "
+                f"Choose one of: {', '.join(credentials)}."
+            )
+        credential = credentials[self.provider]
+        if credential and not os.environ.get(credential):
+            raise ValueError(
+                f"Missing {credential} for provider '{self.provider}'. "
+                "Set it in your environment or .env file."
+            )
+
+    def generate(
+        self,
+        prompt: str,
+        system: str = None,
+        temperature: float = 0.7,
+        max_tokens: int = 500,
+        history=None,
+    ) -> Any:
+        """Return the full SDK response, with up to three attempts."""
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError("prompt must be a non-empty string.")
+        if system is not None and not isinstance(system, str):
+            raise ValueError("system must be a string or None.")
+        if type(max_tokens) is not int or max_tokens <= 0:
+            raise ValueError("max_tokens must be a positive integer.")
+        if (
+            isinstance(temperature, bool)
+            or not isinstance(temperature, (int, float))
+            or not math.isfinite(temperature)
+            or temperature < 0
+        ):
+            raise ValueError("temperature must be a finite, non-negative number.")
+
+        provider_functions = {
+            "bedrock": providers.call_bedrock,
+            "anthropic": providers.call_anthropic,
+            "openai": providers.call_openai,
+            "google": providers.call_google,
+            "ollama": providers.call_ollama,
+        }
+        call_provider = provider_functions[self.provider]
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                if history:
+                    response = call_provider(
+                        prompt, system, temperature, max_tokens, history=history
+                    )
+                else:
+                    response = call_provider(prompt, system, temperature, max_tokens)
+            except ImportError as error:
+                raise RuntimeError(
+                    f"Missing SDK for '{self.provider}'. "
+                    "Install dependencies with pip install -r requirements.txt."
+                ) from error
+            except Exception as error:
+                category = classify_error(error, self.provider)
+                if category == "validation":
+                    raise ValueError(
+                        f"Invalid request for '{self.provider}': {error}"
+                    ) from error
+                if category != "retry":
+                    raise
+                if attempt == max_attempts - 1:
+                    raise RuntimeError(
+                        f"Provider '{self.provider}' failed after "
+                        f"{max_attempts} attempts due to rate limiting, "
+                        "a timeout or a temporary service error."
+                    ) from error
+                delay = 2 ** attempt
+                logger.warning(
+                    "Temporary error from %s; retrying in %ss (attempt %s/%s).",
+                    self.provider, delay, attempt + 2, max_attempts,
+                )
+                time.sleep(delay)
+                continue
+
+            return response
+
+    def generate_report(self, prompt, system=None, temperature=0.7, max_tokens=500):
+        """Return a formatted report; latency includes retries and their delays."""
+        start = time.perf_counter()
+        response = self.generate(prompt, system, temperature, max_tokens)
+        latency = time.perf_counter() - start
+        return format_response(self.provider, response, latency)
+
+    def generate_batch(
+        self, prompts: list[str], system=None, temperature=0.7, max_tokens=500,
+        *, report=False,
+    ) -> list[Any]:
+        """Return full independent responses with three workers, preserving order."""
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            def generate_one(prompt):
+                generate = self.generate_report if report else self.generate
+                return generate(prompt, system, temperature, max_tokens)
+
+            return list(pool.map(generate_one, prompts))
