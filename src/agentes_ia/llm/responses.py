@@ -52,7 +52,7 @@ def format_response(provider, response, latency):
         f"Latency: {latency:.3f} s\n"
         f"Input tokens: {input_tokens if input_tokens is not None else 'N/A'}\n"
         f"Output tokens: {output_tokens if output_tokens is not None else 'N/A'}\n"
-        f"Response: {text or '(sin texto)'}"
+        f"Response: {text or '(no text)'}"
     )
 
 

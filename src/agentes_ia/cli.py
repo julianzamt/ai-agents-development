@@ -12,39 +12,39 @@ from .llm.state import load_state, new_state, save_state
 
 
 def parse_cli_args(argv=None):
-    parser = argparse.ArgumentParser(description="Consultá un LLM con historial y configuración persistentes.")
+    parser = argparse.ArgumentParser(description="Query an LLM with persistent history and configuration.")
     for name, kind in (("prompt", str), ("system", str), ("temperature", float), ("max_tokens", int)):
         parser.add_argument(f"{name}_pos", nargs="?", type=kind, metavar=name)
     parser.add_argument("--prompt")
     parser.add_argument("--batch", nargs="+", metavar="PROMPT",
-                        help="De 1 a 3 consultas independientes con la configuración actual")
+                        help="Run 1 to 3 independent queries using the current configuration")
     parser.add_argument("--system")
     parser.add_argument("--temp", "--temperature", dest="temperature", type=float)
     parser.add_argument("--max-tokens", "--max_tokens", dest="max_tokens", type=int)
     parser.add_argument("--history", type=Path, default=STATE_PATH,
-                        help="JSON con configuración e historial (default: data/client_state.json)")
+                        help="Configuration and history JSON (default: data/client_state.json)")
     resets = parser.add_mutually_exclusive_group()
-    resets.add_argument("--reset", action="store_true", help="Vaciar solo el historial")
-    resets.add_argument("--reset-all", action="store_true", help="Vaciar historial y restaurar configuración")
-    resets.add_argument("--reset-config", action="store_true", help="Restaurar solo la configuración")
+    resets.add_argument("--reset", action="store_true", help="Clear history only")
+    resets.add_argument("--reset-all", action="store_true", help="Clear history and restore default configuration")
+    resets.add_argument("--reset-config", action="store_true", help="Restore default configuration only")
     args = parser.parse_args(argv)
     values = {name: getattr(args, name) if getattr(args, name) is not None
               else getattr(args, f"{name}_pos")
               for name in ("prompt", "system", "temperature", "max_tokens")}
     if values["prompt"] is not None and not values["prompt"].strip():
-        parser.error("El prompt no puede estar vacío.")
+        parser.error("The prompt must not be empty.")
     if args.batch is not None:
         if len(args.batch) > 3 or any(not prompt.strip() for prompt in args.batch):
-            parser.error("--batch acepta de 1 a 3 prompts no vacíos.")
+            parser.error("--batch accepts 1 to 3 non-empty prompts.")
         if values["prompt"] is not None:
-            parser.error("--batch no puede combinarse con un prompt individual.")
+            parser.error("--batch cannot be combined with an individual prompt.")
     temp = values["temperature"]
     if temp is not None and (not math.isfinite(temp) or temp < 0):
-        parser.error("La temperatura debe ser finita y no negativa.")
+        parser.error("Temperature must be finite and non-negative.")
     if values["max_tokens"] is not None and values["max_tokens"] <= 0:
-        parser.error("max_tokens debe ser un entero positivo.")
+        parser.error("max_tokens must be a positive integer.")
     if not (args.batch or args.reset or args.reset_all or args.reset_config) and all(value is None for value in values.values()):
-        parser.error("Indicá un prompt, parámetros para guardar o --reset.")
+        parser.error("Provide a prompt, --batch, parameters to save, or a reset option.")
     return argparse.Namespace(**values, history=args.history, reset=args.reset,
                               reset_all=args.reset_all, reset_config=args.reset_config, batch=args.batch)
 
@@ -71,7 +71,7 @@ def main(argv=None):
         if args.prompt is None:
             state["params"] = params
             save_state(args.history, state)
-            print(f"Configuración guardada en {args.history}: {params}")
+            print(f"Configuration saved to {args.history}: {params}")
             return
         # Parameters alongside a prompt override only this request.
         llm = LLMClient()

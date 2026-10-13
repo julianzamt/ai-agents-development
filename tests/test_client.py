@@ -109,7 +109,7 @@ class ClientTests(unittest.TestCase):
     def test_report_handles_missing_usage_and_text(self):
         self.assertEqual(response_utils.format_response("google", SimpleNamespace(), 1),
                          "Latency: 1.000 s\nInput tokens: N/A\n"
-                         "Output tokens: N/A\nResponse: (sin texto)")
+                         "Output tokens: N/A\nResponse: (no text)")
 
     def test_generate_report_measures_elapsed_time(self):
         llm = self.select("ollama")
@@ -298,15 +298,15 @@ class ClientTests(unittest.TestCase):
 
 class CLITests(unittest.TestCase):
     def test_positionals_and_flag_precedence(self):
-        args = cli.parse_cli_args(["Hola", "Sé breve", "0.7", "100", "--temp", "0.3"])
-        self.assertEqual(args.prompt, "Hola")
-        self.assertEqual(args.system, "Sé breve")
+        args = cli.parse_cli_args(["Hello", "Be brief", "0.7", "100", "--temp", "0.3"])
+        self.assertEqual(args.prompt, "Hello")
+        self.assertEqual(args.system, "Be brief")
         self.assertEqual(args.temperature, 0.3)
         self.assertEqual(args.max_tokens, 100)
 
     def test_invalid_arguments_fail_before_creating_client(self):
-        for argv in ([], ["Hola", "--temp", "nan"], ["Hola", "--temp", "-1"],
-                     ["Hola", "--max-tokens", "0"], ["Hola", "--max-tokens", "1.5"]):
+        for argv in ([], ["Hello", "--temp", "nan"], ["Hello", "--temp", "-1"],
+                     ["Hello", "--max-tokens", "0"], ["Hello", "--max-tokens", "1.5"]):
             with self.subTest(argv=argv), patch("sys.stderr"), patch.object(cli, "LLMClient") as constructor:
                 with self.assertRaises(SystemExit):
                     cli.main(argv)
@@ -315,34 +315,34 @@ class CLITests(unittest.TestCase):
     def test_settings_history_overrides_and_reset(self):
         from google.genai import types
         response = SimpleNamespace(candidates=[SimpleNamespace(content=types.Content(
-            role="model", parts=[types.Part(text="Hola", thought_signature=b"\xff\x00")]))],
+            role="model", parts=[types.Part(text="Hello", thought_signature=b"\xff\x00")]))],
             usage_metadata=None)
         with tempfile.TemporaryDirectory() as directory, patch("builtins.print"), patch.object(cli, "LLMClient") as constructor:
             path = Path(directory) / "state.json"
             flags = ["--history", str(path)]
-            cli.main(flags + ["--system", "Sé breve", "--temp", "0.3", "--max_tokens", "100"])
+            cli.main(flags + ["--system", "Be brief", "--temp", "0.3", "--max_tokens", "100"])
             constructor.assert_not_called()
             self.assertEqual(state.load_state(path)["params"],
-                             dict(system="Sé breve", temperature=0.3, max_tokens=100))
+                             dict(system="Be brief", temperature=0.3, max_tokens=100))
             llm = constructor.return_value
             llm.provider = "google"
             llm.generate.return_value = response
-            cli.main(flags + ["Me llamo Julián"])
-            llm.generate.assert_called_with("Me llamo Julián", system="Sé breve", temperature=0.3,
+            cli.main(flags + ["My name is Julian"])
+            llm.generate.assert_called_with("My name is Julian", system="Be brief", temperature=0.3,
                                             max_tokens=100, history=[])
             history = state.load_state(path)["history"]["google"]
             self.assertEqual(history[1]["parts"][0]["thought_signature"], b"\xff\x00")
             # The SDK accepts the restored native content, including bytes.
             types.Content.model_validate(history[1])
-            cli.main(flags + ["¿Cómo me llamo?", "Override", "0.5", "50"])
-            llm.generate.assert_called_with("¿Cómo me llamo?", system="Override", temperature=0.5,
+            cli.main(flags + ["What is my name?", "Override", "0.5", "50"])
+            llm.generate.assert_called_with("What is my name?", system="Override", temperature=0.5,
                                             max_tokens=50, history=history)
-            self.assertEqual(state.load_state(path)["params"]["system"], "Sé breve")
+            self.assertEqual(state.load_state(path)["params"]["system"], "Be brief")
             self.assertEqual(len(state.load_state(path)["history"]["google"]), 4)
             config = state.load_state(path)["params"]
             cli.main(flags + ["--reset"])
             self.assertEqual(state.load_state(path), {"params": config, "history": {}})
-            cli.main(flags + ["Hola"])
+            cli.main(flags + ["Hello"])
             history = state.load_state(path)["history"]
             cli.main(flags + ["--reset-config"])
             self.assertEqual(state.load_state(path),
@@ -359,7 +359,7 @@ class CLITests(unittest.TestCase):
             constructor.return_value.provider = "google"
             constructor.return_value.generate.side_effect = RuntimeError("failed")
             with self.assertRaises(SystemExit):
-                cli.main(["Hola", "--history", str(path)])
+                cli.main(["Hello", "--history", str(path)])
             self.assertEqual(path.read_text(), before)
 
     def test_adapters_forward_history_in_native_format(self):

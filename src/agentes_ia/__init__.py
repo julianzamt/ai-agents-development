@@ -1,1 +1,1 @@
-"""Proyecto integrador del curso de desarrollo de agentes de IA."""
+"""Capstone project for the AI agent development course."""

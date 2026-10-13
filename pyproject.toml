@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agentes-ia"
 version = "0.1.0"
-description = "Proyecto integrador del curso de desarrollo de agentes de IA"
+description = "Capstone project for the AI agent development course"
 requires-python = ">=3.10"
 dynamic = ["dependencies"]
 
