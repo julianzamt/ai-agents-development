@@ -1,8 +1,9 @@
 """Provider SDK adapters; each returns the original response."""
 
+import json
 import os
 
-def call_bedrock(prompt, system=None, temperature=0.7, max_tokens=500, history=None):
+def call_bedrock(prompt, system=None, temperature=0.7, max_tokens=500, history=None, schema=None):
     import boto3
     from botocore.config import Config
 
@@ -28,11 +29,15 @@ def call_bedrock(prompt, system=None, temperature=0.7, max_tokens=500, history=N
         }
         if system is not None:
             request["system"] = [{"text": system}]
+        if schema is not None:
+            request["outputConfig"] = {"textFormat": {"type": "json_schema", "structure": {
+                "jsonSchema": {"name": "structured_response", "schema": json.dumps(schema)}
+            }}}
         response = client.converse(**request)
     return response
 
 
-def call_anthropic(prompt, system=None, temperature=0.7, max_tokens=500, history=None):
+def call_anthropic(prompt, system=None, temperature=0.7, max_tokens=500, history=None, schema=None):
     from anthropic import Anthropic
 
     with Anthropic(
@@ -46,11 +51,13 @@ def call_anthropic(prompt, system=None, temperature=0.7, max_tokens=500, history
         # As in the notebook, omit temperature: some Claude models reject it.
         if system is not None:
             request["system"] = system
+        if schema is not None:
+            request["output_config"] = {"format": {"type": "json_schema", "schema": schema}}
         response = client.messages.create(**request)
     return response
 
 
-def call_openai(prompt, system=None, temperature=0.7, max_tokens=500, history=None):
+def call_openai(prompt, system=None, temperature=0.7, max_tokens=500, history=None, schema=None):
     from openai import OpenAI
 
     messages = []
@@ -66,11 +73,14 @@ def call_openai(prompt, system=None, temperature=0.7, max_tokens=500, history=No
             messages=messages,
             temperature=temperature,
             max_completion_tokens=max_tokens,
+            **({"response_format": {"type": "json_schema", "json_schema": {
+                "name": "structured_response", "strict": True, "schema": schema
+            }}} if schema is not None else {}),
         )
     return response
 
 
-def call_google(prompt, system=None, temperature=0.7, max_tokens=500, history=None):
+def call_google(prompt, system=None, temperature=0.7, max_tokens=500, history=None, schema=None):
     from google import genai
     from google.genai import types
 
@@ -92,12 +102,14 @@ def call_google(prompt, system=None, temperature=0.7, max_tokens=500, history=No
                 system_instruction=system,
                 temperature=temperature,
                 max_output_tokens=max_tokens,
+                **({"response_mime_type": "application/json", "response_json_schema": schema}
+                   if schema is not None else {}),
             ),
         )
     return response
 
 
-def call_ollama(prompt, system=None, temperature=0.7, max_tokens=500, history=None):
+def call_ollama(prompt, system=None, temperature=0.7, max_tokens=500, history=None, schema=None):
     from ollama import Client
 
     messages = []
@@ -111,6 +123,7 @@ def call_ollama(prompt, system=None, temperature=0.7, max_tokens=500, history=No
             model=os.environ.get("OLLAMA_MODEL_ID", "llama3.1"),
             messages=messages,
             options={"temperature": temperature, "num_predict": max_tokens},
+            **({"format": schema} if schema is not None else {}),
         )
         return response
     finally:

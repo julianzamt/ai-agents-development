@@ -86,3 +86,58 @@ meaning was classified correctly.
 
 This stage defines and validates data. Provider structured outputs belong
 to section 2 and have not been implemented yet.
+
+## Class 3 — section 2: native structured outputs
+
+```bash
+client --structured support --prompt "My account has been locked for two days. Please escalate." --temp 0
+```
+
+The client sends `SupportQuery`'s JSON Schema through the provider's native
+structured-output parameter, validates the returned JSON with Pydantic, and
+prints the validated object alongside latency and token counts. Saved parameters
+and conversation history still apply. Invalid output raises a clear error and
+is not added to history. `--structured` requires one prompt and cannot be
+combined with `--batch`.
+
+From Python:
+
+```python
+from agentes_ia.llm import LLMClient
+from agentes_ia.schemas import SupportQuery
+
+query = LLMClient().generate_structured("Classify this issue: my account is locked", SupportQuery)
+```
+
+Native mappings: Bedrock `outputConfig.textFormat`, Anthropic
+`output_config.format`, OpenAI `response_format`, Google
+`response_mime_type` and `response_json_schema`, Ollama `format`.
+Support depends on the selected model and provider's JSON Schema subset.
+Unsupported requests fail explicitly; the universal prompt-only mode must be selected explicitly. Schema validation checks structure,
+not factual correctness. Existing system prompts can conflict with this task;
+use suitable instructions or override `--system` for the request.
+
+
+## Class 3 — section 3: structured validation retries
+
+Structured generation allows up to three validation attempts by default. Invalid
+JSON or schema violations trigger another request containing the original task,
+previous output, validation errors, and schema. Exhaustion raises a clear error
+with the last validation exception as its cause. Only the successful final turn
+is saved in conversation history.
+
+```bash
+client --structured support --structured-attempts 3 --prompt "My account is locked"
+client --structured support --structured-mode prompt --temp 0 --prompt "My account is locked"
+```
+
+`--structured-mode prompt` requests JSON through instructions instead of native
+provider schema enforcement, supporting the universal pattern from the notebook.
+Native mode remains the default; unsupported native requests are not silently
+retried in prompt mode. Python callers can pass `max_attempts=3` and `native=False`
+to `generate_structured()`.
+
+Validation attempts are separate from transport retries: each validation attempt
+can use the existing bounded network retry policy. Report latency includes all
+attempts; displayed token counts belong to the final response, not the total
+consumed by failed attempts. Validation repair does not add backoff delays.

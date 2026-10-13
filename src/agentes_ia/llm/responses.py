@@ -1,7 +1,7 @@
 """Response formatting and provider-native conversation messages."""
 
-def format_response(provider, response, latency):
-    """Format SDK text and token usage; missing counts remain unknown."""
+def response_details(provider, response):
+    """Extract text and token counts from a provider response."""
     def field(value, name, default=None):
         if isinstance(value, dict):
             return value.get(name, default)
@@ -48,6 +48,12 @@ def format_response(provider, response, latency):
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
+    return text, input_tokens, output_tokens
+
+
+def format_response(provider, response, latency):
+    """Format SDK text and token usage; missing counts remain unknown."""
+    text, input_tokens, output_tokens = response_details(provider, response)
     return (
         f"Latency: {latency:.3f} s\n"
         f"Input tokens: {input_tokens if input_tokens is not None else 'N/A'}\n"
