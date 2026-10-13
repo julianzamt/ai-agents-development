@@ -141,3 +141,27 @@ Validation attempts are separate from transport retries: each validation attempt
 can use the existing bounded network retry policy. Report latency includes all
 attempts; displayed token counts belong to the final response, not the total
 consumed by failed attempts. Validation repair does not add backoff delays.
+
+## Class 3 — section 4: explicit tool calling
+
+```bash
+client --tools tickets --system "Use the ticket tools and report their results accurately." --prompt "What is the status of ticket T-999?"
+client --tools tickets --prompt "Escalate ticket T-001 because the service has been down for two hours."
+```
+
+The registered tools are `get_ticket_status(ticket_id)` and
+`escalate_ticket(ticket_id, reason)`. Both are local mocks: escalation does not
+change a real ticket or persist a new status. Unknown IDs return `Not found`.
+Arguments are validated with strict Pydantic models before execution.
+
+The model requests functions; application code executes them and sends results
+back through provider-native messages. Google AFC stays disabled. The loop
+supports up to three execution rounds plus a final response, rejects unknown
+tools, and saves the complete successful exchange, including signatures and
+tool results. Tool mode requires one prompt and cannot be combined with batch
+or structured-output mode. Saved parameters apply as usual.
+
+In Python, `LLMClient().generate_with_tools(prompt)` returns the final SDK
+response and updated history. Report latency covers the whole loop; token
+counts currently describe only the final response. No real API calls are made
+by the automated tests.

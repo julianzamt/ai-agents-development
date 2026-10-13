@@ -17,6 +17,7 @@ def parse_cli_args(argv=None):
     for name, kind in (("prompt", str), ("system", str), ("temperature", float), ("max_tokens", int)):
         parser.add_argument(f"{name}_pos", nargs="?", type=kind, metavar=name)
     parser.add_argument("--prompt")
+    parser.add_argument("--tools", choices=["tickets"], help="Enable mock ticket tools")
     parser.add_argument("--structured", choices=["support"],
                         help="Return a validated SupportQuery using native structured output")
     parser.add_argument("--structured-attempts", type=int, default=3,
@@ -47,6 +48,8 @@ def parse_cli_args(argv=None):
             parser.error("--batch cannot be combined with an individual prompt.")
     if args.structured and (args.batch or values["prompt"] is None):
         parser.error("--structured requires an individual prompt and cannot be used with --batch.")
+    if args.tools and (args.structured or args.batch or values["prompt"] is None):
+        parser.error("--tools requires one prompt and cannot be combined with --structured or --batch.")
     if args.structured_attempts <= 0:
         parser.error("--structured-attempts must be positive.")
     temp = values["temperature"]
@@ -59,7 +62,7 @@ def parse_cli_args(argv=None):
     return argparse.Namespace(**values, history=args.history, reset=args.reset,
                               reset_all=args.reset_all, reset_config=args.reset_config, batch=args.batch, structured=args.structured,
                               structured_attempts=args.structured_attempts,
-                              structured_mode=args.structured_mode)
+                              structured_mode=args.structured_mode, tools=args.tools)
 
 
 def main(argv=None):
@@ -90,7 +93,11 @@ def main(argv=None):
         llm = LLMClient()
         history = state["history"].get(llm.provider, [])
         start = time.perf_counter()
-        if args.structured:
+        if args.tools:
+            response, updated_history = llm.generate_with_tools(
+                args.prompt, **params, history=history
+            )
+        elif args.structured:
             result, response = llm.generate_structured(
                 args.prompt, SupportQuery, **params, history=history, include_response=True,
                 max_attempts=args.structured_attempts, native=args.structured_mode == "native"
@@ -98,8 +105,11 @@ def main(argv=None):
         else:
             response = llm.generate(args.prompt, **params, history=history)
         latency = time.perf_counter() - start
-        turn = conversation_turn(llm.provider, args.prompt, response)
-        state["history"][llm.provider] = history + turn
+        if args.tools:
+            state["history"][llm.provider] = updated_history
+        else:
+            turn = conversation_turn(llm.provider, args.prompt, response)
+            state["history"][llm.provider] = history + turn
         save_state(args.history, state)
         report = format_response(llm.provider, response, latency)
         if args.structured:

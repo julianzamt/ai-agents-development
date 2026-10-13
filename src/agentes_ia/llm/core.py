@@ -50,9 +50,10 @@ class LLMClient:
         max_tokens: int = 500,
         history=None,
         schema=None,
+        tools=None,
     ) -> Any:
         """Return the full SDK response, with up to three attempts."""
-        if not isinstance(prompt, str) or not prompt.strip():
+        if not (prompt is None and tools and history) and (not isinstance(prompt, str) or not prompt.strip()):
             raise ValueError("prompt must be a non-empty string.")
         if system is not None and not isinstance(system, str):
             raise ValueError("system must be a string or None.")
@@ -82,6 +83,8 @@ class LLMClient:
                     options["history"] = history
                 if schema is not None:
                     options["schema"] = schema
+                if tools:
+                    options["tools"] = tools
                 response = call_provider(prompt, system, temperature, max_tokens, **options)
             except ImportError as error:
                 raise RuntimeError(
@@ -111,6 +114,12 @@ class LLMClient:
                 continue
 
             return response
+
+    def generate_with_tools(self, prompt, system=None, temperature=0.7, max_tokens=500,
+                            history=None, *, max_rounds=3):
+        """Run the explicit mock ticket tool loop and return its complete history."""
+        from .tool_calling import run_tools
+        return run_tools(self, prompt, system, temperature, max_tokens, history, max_rounds)
 
     def generate_structured(
         self, prompt, schema_model, system=None, temperature=0.7, max_tokens=500,
