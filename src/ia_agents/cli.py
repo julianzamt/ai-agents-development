@@ -7,7 +7,7 @@ from .schemas import SupportQuery
 from .tools import TOOL_GROUPS
 from .llm.config import DEFAULT_PARAMS, CONFIG_PATH, HISTORY_PATH
 from .llm.core import LLMClient
-from .llm.responses import conversation_turn, format_response
+from .llm.responses import conversation_turn, format_response, response_details
 from .llm.state import load_config, load_history, save_json
 
 
@@ -60,17 +60,17 @@ def parse_cli_args(argv=None):
     # Sanity checks
     if values["prompt"] is not None and not values["prompt"].strip(): # No empty prompts
         parser.error("The prompt must not be empty.")
-    
+
     if args.batch is not None:
         if len(args.batch) > 3 or any(not prompt.strip() for prompt in args.batch):
             parser.error("--batch accepts 1 to 3 non-empty prompts.")
         if values["prompt"] is not None:
             parser.error("--batch cannot be combined with an individual prompt.")
-            
+
     if args.structured and not args.batch and values["prompt"] is None:
         parser.error("--structured requires a prompt or --batch.")
-    if args.tools and (args.structured or args.batch or values["prompt"] is None):
-        parser.error("--tools requires one prompt and cannot be combined with --structured or --batch.")
+    if args.tools and not args.batch and values["prompt"] is None:
+        parser.error("--tools requires a prompt or --batch.")
     if args.structured_attempts <= 0:
         parser.error("--structured-attempts must be positive.")
 
@@ -106,6 +106,8 @@ def main(argv=None):
                 structured_options = dict(schema_model=SupportQuery,
                                           max_attempts=args.structured_attempts,
                                           native=args.structured_mode == "native")
+            if args.tools:
+                structured_options["tool_groups"] = args.tools
             reports = llm.generate_batch(args.batch, **params, report=True, **structured_options)
             if args.reset or args.reset_all:
                 save_json(args.history, histories)
@@ -129,8 +131,13 @@ def main(argv=None):
         history = histories.get(llm.provider, [])
         start = time.perf_counter()
         if args.tools:
+            structured_options = {}
+            if args.structured:
+                structured_options = dict(schema_model=SupportQuery,
+                                          max_attempts=args.structured_attempts,
+                                          native=args.structured_mode == "native")
             response, updated_history = llm.generate_with_tools(
-                args.prompt, **params, history=history, tool_groups=args.tools
+                args.prompt, **params, history=history, tool_groups=args.tools, **structured_options
             )
         elif args.structured:
             result, response = llm.generate_structured(
@@ -150,6 +157,9 @@ def main(argv=None):
             save_json(CONFIG_PATH, saved_params)
         report = format_response(llm.provider, response, latency)
         if args.structured:
+            if args.tools:
+                text, _, _ = response_details(llm.provider, response)
+                result = SupportQuery.model_validate_json(text)
             report = report.split("Response: ", 1)[0] + "Response: " + result.model_dump_json(indent=2)
         print(report)
     except (ValueError, RuntimeError, OSError) as error:
