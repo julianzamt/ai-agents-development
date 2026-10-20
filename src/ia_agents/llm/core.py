@@ -179,11 +179,21 @@ class LLMClient:
 
     def generate_batch(
         self, prompts: list[str], system=None, temperature=0.7, max_tokens=500,
-        *, report=False,
+        *, report=False, schema_model=None, max_attempts=3, native=True,
     ) -> list[Any]:
         """Return full independent responses with three workers, preserving order."""
         with ThreadPoolExecutor(max_workers=3) as pool:
             def generate_one(prompt):
+                if schema_model is not None:
+                    start = time.perf_counter()
+                    result, response = self.generate_structured(
+                        prompt, schema_model, system, temperature, max_tokens,
+                        include_response=True, max_attempts=max_attempts, native=native,
+                    )
+                    if not report:
+                        return result
+                    formatted = format_response(self.provider, response, time.perf_counter() - start)
+                    return formatted.split("Response: ", 1)[0] + "Response: " + result.model_dump_json(indent=2)
                 generate = self.generate_report if report else self.generate
                 return generate(prompt, system, temperature, max_tokens)
 

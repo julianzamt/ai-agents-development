@@ -66,9 +66,9 @@ def parse_cli_args(argv=None):
             parser.error("--batch accepts 1 to 3 non-empty prompts.")
         if values["prompt"] is not None:
             parser.error("--batch cannot be combined with an individual prompt.")
-    
-    if args.structured and (args.batch or values["prompt"] is None):
-        parser.error("--structured requires an individual prompt and cannot be used with --batch.")
+            
+    if args.structured and not args.batch and values["prompt"] is None:
+        parser.error("--structured requires a prompt or --batch.")
     if args.tools and (args.structured or args.batch or values["prompt"] is None):
         parser.error("--tools requires one prompt and cannot be combined with --structured or --batch.")
     if args.structured_attempts <= 0:
@@ -101,7 +101,12 @@ def main(argv=None):
         params = saved_params | explicit
         if args.batch:
             llm = LLMClient()
-            reports = llm.generate_batch(args.batch, **params, report=True)
+            structured_options = {}
+            if args.structured:
+                structured_options = dict(schema_model=SupportQuery,
+                                          max_attempts=args.structured_attempts,
+                                          native=args.structured_mode == "native")
+            reports = llm.generate_batch(args.batch, **params, report=True, **structured_options)
             if args.reset or args.reset_all:
                 save_json(args.history, histories)
             if args.reset_config or args.reset_all:

@@ -1,6 +1,9 @@
 """Native structured request and validation contracts."""
 
 import os
+import tempfile
+from pathlib import Path
+from ia_agents import cli
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -76,6 +79,60 @@ class StructuredTests(unittest.TestCase):
                 with self.subTest(count=count), self.assertRaises(ValueError):
                     llm.generate_structured("Classify", SupportQuery, max_attempts=count)
             generate.assert_not_called()
+
+    def test_structured_batch_retries_independently_and_preserves_order(self):
+        llm = LLMClient.__new__(LLMClient)
+        llm.provider = "ollama"
+        attempts = {}
+        def respond(prompt, *args, **kwargs):
+            original = "First" if prompt.startswith("First") else "Second"
+            attempts[original] = attempts.get(original, 0) + 1
+            text = "invalid" if original == "First" and attempts[original] == 1 else SupportQuery(
+                category="billing", urgency="low", summary=original,
+                requires_escalation=False).model_dump_json()
+            return SimpleNamespace(message=SimpleNamespace(content=text))
+        with patch.object(llm, "generate", side_effect=respond):
+            results = llm.generate_batch(["First", "Second"], schema_model=SupportQuery)
+        self.assertEqual([result.summary for result in results], ["First", "Second"])
+        self.assertEqual(attempts, {"First": 2, "Second": 1})
+
+    def test_cli_structured_batch_reports_and_keeps_local_files(self):
+        llm = LLMClient.__new__(LLMClient)
+        llm.provider = "ollama"
+        data = SupportQuery(category="billing", urgency="low", summary="Duplicate charge",
+                            requires_escalation=False)
+        response = SimpleNamespace(message=SimpleNamespace(content=data.model_dump_json()))
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "config.json"
+            history = Path(directory) / "history.json"
+            config.write_text('{"temperature": 0.2}')
+            history.write_text("History must not be read")
+            for mode in ("native", "prompt"):
+                with patch.object(cli, "CONFIG_PATH", config), patch.object(cli, "LLMClient", return_value=llm), patch.object(
+                    llm, "generate", return_value=response
+                ) as generate, patch("builtins.print") as output:
+                    cli.main(["--history", str(history), "--batch", "First", "Second",
+                              "--structured", "support", "--structured-mode", mode,
+                              "--structured-attempts", "2"])
+                    self.assertEqual(generate.call_count, 2)
+                    for request in generate.call_args_list:
+                        self.assertEqual(request.args[2], 0.2)
+                        self.assertEqual(request.kwargs["schema"],
+                                         SupportQuery.model_json_schema() if mode == "native" else None)
+                    self.assertIn("[1] First", output.call_args_list[0].args[0])
+                    self.assertIn("[2] Second", output.call_args_list[1].args[0])
+                    self.assertIn('"summary": "Duplicate charge"', output.call_args_list[0].args[0])
+            self.assertEqual(config.read_text(), '{"temperature": 0.2}')
+            self.assertEqual(history.read_text(), "History must not be read")
+
+    def test_structured_batch_propagates_validation_failure(self):
+        llm = LLMClient.__new__(LLMClient)
+        llm.provider = "ollama"
+        response = SimpleNamespace(message=SimpleNamespace(content="{}"))
+        with patch.object(llm, "generate", return_value=response) as generate:
+            with self.assertRaisesRegex(ValueError, "after 2 attempts"):
+                llm.generate_batch(["First"], schema_model=SupportQuery, max_attempts=2)
+            self.assertEqual(generate.call_count, 2)
 
     def test_each_adapter_sends_native_schema(self):
         schema = SupportQuery.model_json_schema()
