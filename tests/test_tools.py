@@ -7,9 +7,9 @@ from unittest.mock import patch
 from google.genai import types
 from pydantic import ValidationError
 
-from agentes_ia.llm.core import LLMClient
-from agentes_ia.llm.tool_calling import result_messages
-from agentes_ia.tools import TICKET_TOOLS
+from ia_agents.llm.core import LLMClient
+from ia_agents.llm.tool_calling import result_messages
+from ia_agents.tools import TICKET_TOOLS
 
 
 def google_response(name=None, arguments=None):

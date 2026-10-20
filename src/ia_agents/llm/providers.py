@@ -3,6 +3,8 @@
 import json
 import os
 
+from .config import CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS
+
 def call_bedrock(prompt, system=None, temperature=0.7, max_tokens=500, history=None, schema=None, tools=None):
     import boto3
     from botocore.config import Config
@@ -12,8 +14,8 @@ def call_bedrock(prompt, system=None, temperature=0.7, max_tokens=500, history=N
         "bedrock-runtime",
         region_name=os.environ.get("AWS_REGION", "us-east-1"),
         config=Config(
-            connect_timeout=10,
-            read_timeout=60,
+            connect_timeout=CONNECT_TIMEOUT_SECONDS,
+            read_timeout=READ_TIMEOUT_SECONDS,
             retries={"total_max_attempts": 1},
         ),
     ) as client:
@@ -44,7 +46,7 @@ def call_anthropic(prompt, system=None, temperature=0.7, max_tokens=500, history
     from anthropic import Anthropic
 
     with Anthropic(
-        api_key=os.environ["ANTHROPIC_API_KEY"], max_retries=0, timeout=60
+        api_key=os.environ["ANTHROPIC_API_KEY"], max_retries=0, timeout=READ_TIMEOUT_SECONDS
     ) as client:
         request = {
             "model": os.environ.get("ANTHROPIC_MODEL_ID", "claude-sonnet-4-6"),
@@ -73,7 +75,7 @@ def call_openai(prompt, system=None, temperature=0.7, max_tokens=500, history=No
     if prompt is not None:
         messages.append({"role": "user", "content": prompt})
     with OpenAI(
-        api_key=os.environ["OPENAI_API_KEY"], max_retries=0, timeout=60
+        api_key=os.environ["OPENAI_API_KEY"], max_retries=0, timeout=READ_TIMEOUT_SECONDS
     ) as client:
         response = client.chat.completions.create(
             model=os.environ.get("OPENAI_MODEL_ID", "gpt-4o"),
@@ -96,7 +98,7 @@ def call_google(prompt, system=None, temperature=0.7, max_tokens=500, history=No
     with genai.Client(
         api_key=os.environ["GOOGLE_API_KEY"],
         http_options=types.HttpOptions(
-            timeout=60_000,
+            timeout=READ_TIMEOUT_SECONDS * 1_000,
             retry_options=types.HttpRetryOptions(attempts=1),
         ),
     ) as client:
@@ -130,7 +132,7 @@ def call_ollama(prompt, system=None, temperature=0.7, max_tokens=500, history=No
     messages.extend(history or [])
     if prompt is not None:
         messages.append({"role": "user", "content": prompt})
-    client = Client(host=os.environ.get("OLLAMA_HOST"), timeout=60)
+    client = Client(host=os.environ.get("OLLAMA_HOST"), timeout=READ_TIMEOUT_SECONDS)
     try:
         response = client.chat(
             model=os.environ.get("OLLAMA_MODEL_ID", "llama3.1"),

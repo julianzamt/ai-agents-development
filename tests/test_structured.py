@@ -5,9 +5,9 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from agentes_ia.llm.core import LLMClient
-from agentes_ia.llm import providers
-from agentes_ia.schemas import SupportQuery
+from ia_agents.llm.core import LLMClient
+from ia_agents.llm import providers
+from ia_agents.schemas import SupportQuery
 
 
 class StructuredTests(unittest.TestCase):

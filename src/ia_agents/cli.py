@@ -1,5 +1,3 @@
-"""Command-line parsing and persistent conversation workflow."""
-
 import argparse
 import math
 import time

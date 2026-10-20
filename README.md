@@ -1,7 +1,7 @@
 # AI agents project
 
 An evolving capstone project for the AI agent development course. Shared code
-lives in `src/agentes_ia`; original course notebooks are in `clases/`.
+lives in `src/ia_agents`; original course notebooks are in `clases/`.
 
 ## Installation
 
@@ -30,7 +30,7 @@ client --batch "What is the capital of France?" "What is the capital of Argentin
 client --help
 ```
 
-You can also run `python -m agentes_ia`. Parameters without a prompt are saved;
+You can also run `python -m ia_agents`. Parameters without a prompt are saved;
 with a prompt or batch, they override saved values for that invocation only.
 Batch queries use the current configuration but do not read or update history.
 
@@ -44,9 +44,9 @@ current working directory.
 
 ## Organization
 
-- `src/agentes_ia/cli.py`: argument parsing and command workflow.
-- `src/agentes_ia/llm/`: client, providers, responses and persistence.
-- `src/agentes_ia/schemas/`: Pydantic data models.
+- `src/ia_agents/cli.py`: argument parsing and command workflow.
+- `src/ia_agents/llm/`: client, providers, responses and persistence.
+- `src/ia_agents/schemas/`: Pydantic data models.
 - `tests/`: offline tests without real API calls.
 - `clases/clase2/` and `clases/clase3/`: original course material.
 - `data/`: local runtime state.
@@ -55,7 +55,7 @@ current working directory.
 Import the client from Python:
 
 ```python
-from agentes_ia.llm import LLMClient
+from ia_agents.llm import LLMClient
 ```
 
 ## Tests
@@ -66,7 +66,7 @@ python -m unittest discover -s tests
 
 ## Class 3 — section 1: JSON Schema and Pydantic
 
-`agentes_ia.schemas.SupportQuery` defines `category`, `urgency`, `summary`
+`ia_agents.schemas.SupportQuery` defines `category`, `urgency`, `summary`
 (1 to 200 characters), and the required boolean `requires_escalation`.
 It rejects extra fields and implicit type conversions. This is the notebook's
 teaching example; the lab will later require a domain-specific model.
@@ -74,7 +74,7 @@ teaching example; the lab will later require a domain-specific model.
 Run the demo without credentials or LLM calls:
 
 ```bash
-python -m agentes_ia.schemas
+python -m ia_agents.schemas
 ```
 
 Generate the JSON contract with `SupportQuery.model_json_schema()`.
@@ -103,8 +103,8 @@ combined with `--batch`.
 From Python:
 
 ```python
-from agentes_ia.llm import LLMClient
-from agentes_ia.schemas import SupportQuery
+from ia_agents.llm import LLMClient
+from ia_agents.schemas import SupportQuery
 
 query = LLMClient().generate_structured("Classify this issue: my account is locked", SupportQuery)
 ```
@@ -165,3 +165,22 @@ In Python, `LLMClient().generate_with_tools(prompt)` returns the final SDK
 response and updated history. Report latency covers the whole loop; token
 counts currently describe only the final response. No real API calls are made
 by the automated tests.
+
+## Class 3 — section 5: timeouts and exponential backoff with jitter
+
+Transport calls allow at most three attempts. Retryable failures (timeouts,
+rate limits and recognized temporary service errors) wait `2 ** attempt` plus
+a random value between 0 and 1 second: 1–2 seconds before the second attempt,
+2–3 before the third. There is no delay after success or final failure.
+Validation and permission errors are not retried.
+
+The shared policy lives in `src/ia_agents/llm/config.py`: 60-second read/request
+inactivity timeouts, a 10-second Bedrock connection timeout and three transport
+attempts. Google receives its timeout in milliseconds. SDK retries are disabled
+where configurable so they do not multiply the application retries.
+
+These are transport timeouts, not a strict deadline for the complete command:
+network phases, structured repair attempts and tool rounds can increase total
+elapsed time. Structured validation retries remain distinct from transport
+backoff. Offline tests cover timeout retries, jitter, bounded exhaustion and
+provider timeout/retry settings.

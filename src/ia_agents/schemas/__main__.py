@@ -1,4 +1,4 @@
-"""Offline demo: python -m agentes_ia.schemas."""
+"""Offline demo: python -m ia_agents.schemas."""
 
 import json
 

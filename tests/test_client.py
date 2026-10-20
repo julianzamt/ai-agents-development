@@ -19,11 +19,11 @@ from openai import APIStatusError as OpenAIAPIStatusError
 from openai import APITimeoutError as OpenAIAPITimeoutError
 from openai import RateLimitError as OpenAIRateLimitError
 
-from agentes_ia.llm import core as client
-from agentes_ia import cli
-from agentes_ia.llm import providers, state
-from agentes_ia.llm import responses as response_utils
-from agentes_ia.llm.config import DEFAULT_PARAMS
+from ia_agents.llm import core as client
+from ia_agents import cli
+from ia_agents.llm import providers, state
+from ia_agents.llm import responses as response_utils
+from ia_agents.llm.config import DEFAULT_PARAMS
 
 
 PROVIDERS = ("bedrock", "anthropic", "openai", "google", "ollama")
@@ -62,6 +62,9 @@ class ClientTests(unittest.TestCase):
         dotenv = patch.object(client, "load_dotenv")
         dotenv.start()
         self.addCleanup(dotenv.stop)
+        jitter = patch.object(client.random, "uniform", return_value=0)
+        self.jitter = jitter.start()
+        self.addCleanup(jitter.stop)
         sleep = patch.object(client.time, "sleep")
         self.sleep = sleep.start()
         self.addCleanup(sleep.stop)
@@ -186,6 +189,13 @@ class ClientTests(unittest.TestCase):
                     generate.assert_called_once()
         self.sleep.assert_not_called()
 
+    def test_retry_delays_include_jitter_and_stop_after_success(self):
+        self.jitter.side_effect = [0.25, 0.75]
+        with patch.object(providers, "call_google", side_effect=[TimeoutError(), TimeoutError(), "OK"]):
+            self.assertEqual(self.select("google").generate("Hello"), "OK")
+        self.assertEqual(self.sleep.call_args_list, [call(1.25), call(2.75)])
+        self.assertEqual(self.jitter.call_args_list, [call(0, 1), call(0, 1)])
+
     def test_network_timeouts_retry(self):
         request = httpx.Request("POST", "https://example.com")
         errors = {
@@ -249,6 +259,7 @@ class ClientTests(unittest.TestCase):
             self.assertEqual(config.temperature, 0)
             self.assertEqual(config.max_output_tokens, 123)
             self.assertEqual(constructor.call_args.kwargs["http_options"].retry_options.attempts, 1)
+            self.assertEqual(constructor.call_args.kwargs["http_options"].timeout, 60_000)
 
     def test_bedrock_adapter_passes_system_and_returns_full_response(self):
         with patch("boto3.client") as constructor:
@@ -257,6 +268,10 @@ class ClientTests(unittest.TestCase):
                 {"text": "Pa"}, {"reasoningContent": {}}, {"text": "ris"}
             ]}}}
             self.assertIs(providers.call_bedrock("Capital?", "Be concise", 0, 123), sdk.converse.return_value)
+            config = constructor.call_args.kwargs["config"]
+            self.assertEqual(config.connect_timeout, 10)
+            self.assertEqual(config.read_timeout, 60)
+            self.assertEqual(config.retries["total_max_attempts"], 1)
             arguments = sdk.converse.call_args.kwargs
             self.assertEqual(arguments["system"], [{"text": "Be concise"}])
             self.assertEqual(arguments["inferenceConfig"], {"temperature": 0, "maxTokens": 123})
@@ -269,6 +284,8 @@ class ClientTests(unittest.TestCase):
                 SimpleNamespace(type="text", text="Paris"),
             ]
             self.assertIs(providers.call_anthropic("Capital?", "Be concise", 0, 123), sdk.messages.create.return_value)
+            self.assertEqual(constructor.call_args.kwargs["timeout"], 60)
+            self.assertEqual(constructor.call_args.kwargs["max_retries"], 0)
             arguments = sdk.messages.create.call_args.kwargs
             self.assertEqual(arguments["system"], "Be concise")
             self.assertEqual(arguments["max_tokens"], 123)
@@ -280,6 +297,8 @@ class ClientTests(unittest.TestCase):
                 SimpleNamespace(message=SimpleNamespace(content="Paris"))
             ]
             self.assertIs(providers.call_openai("Capital?", "Be concise", 0, 123), sdk.chat.completions.create.return_value)
+            self.assertEqual(constructor.call_args.kwargs["timeout"], 60)
+            self.assertEqual(constructor.call_args.kwargs["max_retries"], 0)
             arguments = sdk.chat.completions.create.call_args.kwargs
             self.assertEqual(arguments["messages"][0], {"role": "system", "content": "Be concise"})
             self.assertEqual(arguments["temperature"], 0)
@@ -290,6 +309,7 @@ class ClientTests(unittest.TestCase):
             sdk = constructor.return_value
             sdk.chat.return_value.message.content = "Paris"
             self.assertIs(providers.call_ollama("Capital?", "Be concise", 0, 123), sdk.chat.return_value)
+            self.assertEqual(constructor.call_args.kwargs["timeout"], 60)
             arguments = sdk.chat.call_args.kwargs
             self.assertEqual(arguments["messages"][0], {"role": "system", "content": "Be concise"})
             self.assertEqual(arguments["options"], {"temperature": 0, "num_predict": 123})

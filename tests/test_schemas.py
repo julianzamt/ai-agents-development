@@ -5,7 +5,7 @@ import unittest
 
 from pydantic import ValidationError
 
-from agentes_ia.schemas import SupportQuery
+from ia_agents.schemas import SupportQuery
 
 
 class SupportQueryTests(unittest.TestCase):

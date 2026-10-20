@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import os
+import random
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -12,7 +13,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError
 
 from . import providers
-from .config import PROJECT_ROOT
+from .config import PROJECT_ROOT, TRANSPORT_MAX_ATTEMPTS
 from .errors import classify_error
 from .responses import format_response, response_details
 
@@ -75,7 +76,7 @@ class LLMClient:
             "ollama": providers.call_ollama,
         }
         call_provider = provider_functions[self.provider]
-        max_attempts = 3
+        max_attempts = TRANSPORT_MAX_ATTEMPTS
         for attempt in range(max_attempts):
             try:
                 options = {}
@@ -105,9 +106,9 @@ class LLMClient:
                         f"{max_attempts} attempts due to rate limiting, "
                         "a timeout or a temporary service error."
                     ) from error
-                delay = 2 ** attempt
+                delay = (2 ** attempt) + random.uniform(0, 1)
                 logger.warning(
-                    "Temporary error from %s; retrying in %ss (attempt %s/%s).",
+                    "Temporary error from %s; retrying in %.2fs (attempt %s/%s).",
                     self.provider, delay, attempt + 2, max_attempts,
                 )
                 time.sleep(delay)
