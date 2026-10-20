@@ -23,18 +23,15 @@ def json_object(value):
     return value
 
 
-def new_state():
-    return {"params": dict(DEFAULT_PARAMS), "history": {}}
-
-
-def load_state(path):
+def load_config(path):
+    """Load saved preferences, filling missing fields from built-in defaults."""
     if not path.exists():
-        return new_state()
+        return dict(DEFAULT_PARAMS)
     try:
-        state = json.loads(path.read_text(), object_hook=json_object)
-        params = state["params"]
-        if not isinstance(state["history"], dict) or set(params) != set(DEFAULT_PARAMS):
-            raise ValueError("Invalid state structure")
+        saved = json.loads(path.read_text())
+        if not isinstance(saved, dict) or saved.keys() - DEFAULT_PARAMS.keys():
+            raise ValueError("Invalid configuration structure")
+        params = DEFAULT_PARAMS | saved
         if params["system"] is not None and not isinstance(params["system"], str):
             raise ValueError("Invalid system")
         temp = params["temperature"]
@@ -42,17 +39,27 @@ def load_state(path):
             raise ValueError("Invalid temperature")
         if type(params["max_tokens"]) is not int or params["max_tokens"] <= 0:
             raise ValueError("Invalid max_tokens")
-        if any(not isinstance(messages, list) for messages in state["history"].values()):
-            raise ValueError("Invalid history")
-        return state
-    except (ValueError, KeyError, TypeError) as error:
-        raise ValueError(f"Invalid state file {path}: {error}. Use --reset-all to restore defaults.") from error
+        return params
+    except (ValueError, TypeError) as error:
+        raise ValueError(f"Invalid configuration file {path}: {error}. Use --reset-config to restore defaults.") from error
 
 
-def save_state(path, state):
+def load_history(path):
+    if not path.exists():
+        return {}
+    try:
+        history = json.loads(path.read_text(), object_hook=json_object)
+        if not isinstance(history, dict) or any(not isinstance(messages, list) for messages in history.values()):
+            raise ValueError("Invalid history structure")
+        return history
+    except (ValueError, TypeError) as error:
+        raise ValueError(f"Invalid history file {path}: {error}. Use --reset to clear history.") from error
+
+
+def save_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     # Replace atomically so an interrupted write does not truncate the history.
-    data = json.dumps(state, default=json_default, ensure_ascii=False, indent=2)
+    data = json.dumps(value, default=json_default, ensure_ascii=False, indent=2)
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as file:

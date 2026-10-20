@@ -339,10 +339,14 @@ class CLITests(unittest.TestCase):
             usage_metadata=None)
         with tempfile.TemporaryDirectory() as directory, patch("builtins.print"), patch.object(cli, "LLMClient") as constructor:
             path = Path(directory) / "state.json"
+            config_path = Path(directory) / "config.json"
+            config_patch = patch.object(cli, "CONFIG_PATH", config_path)
+            config_patch.start()
+            self.addCleanup(config_patch.stop)
             flags = ["--history", str(path)]
             cli.main(flags + ["--system", "Be brief", "--temp", "0.3", "--max_tokens", "100"])
             constructor.assert_not_called()
-            self.assertEqual(state.load_state(path)["params"],
+            self.assertEqual(state.load_config(config_path),
                              dict(system="Be brief", temperature=0.3, max_tokens=100))
             llm = constructor.return_value
             llm.provider = "google"
@@ -350,31 +354,65 @@ class CLITests(unittest.TestCase):
             cli.main(flags + ["My name is Julian"])
             llm.generate.assert_called_with("My name is Julian", system="Be brief", temperature=0.3,
                                             max_tokens=100, history=[])
-            history = state.load_state(path)["history"]["google"]
+            history = state.load_history(path)["google"]
             self.assertEqual(history[1]["parts"][0]["thought_signature"], b"\xff\x00")
             # The SDK accepts the restored native content, including bytes.
             types.Content.model_validate(history[1])
             cli.main(flags + ["What is my name?", "Override", "0.5", "50"])
             llm.generate.assert_called_with("What is my name?", system="Override", temperature=0.5,
                                             max_tokens=50, history=history)
-            self.assertEqual(state.load_state(path)["params"]["system"], "Be brief")
-            self.assertEqual(len(state.load_state(path)["history"]["google"]), 4)
-            config = state.load_state(path)["params"]
+            self.assertEqual(state.load_config(config_path)["system"], "Be brief")
+            self.assertEqual(len(state.load_history(path)["google"]), 4)
+            config = state.load_config(config_path)
             cli.main(flags + ["--reset"])
-            self.assertEqual(state.load_state(path), {"params": config, "history": {}})
+            self.assertEqual(state.load_history(path), {})
+            self.assertEqual(state.load_config(config_path), config)
             cli.main(flags + ["Hello"])
-            history = state.load_state(path)["history"]
+            history = state.load_history(path)
             cli.main(flags + ["--reset-config"])
-            self.assertEqual(state.load_state(path),
-                             {"params": DEFAULT_PARAMS, "history": history})
+            self.assertEqual(state.load_config(config_path), DEFAULT_PARAMS)
+            self.assertEqual(state.load_history(path), history)
             cli.main(flags + ["--system", "Custom"])
             cli.main(flags + ["--reset-all"])
-            self.assertEqual(state.load_state(path), state.new_state())
+            self.assertEqual(state.load_history(path), {})
+            self.assertEqual(state.load_config(config_path), DEFAULT_PARAMS)
+
+    def test_config_option_is_not_supported(self):
+        with patch("sys.stderr"), self.assertRaises(SystemExit):
+            cli.parse_cli_args(["--config", "other.json", "--prompt", "Hello"])
+
+    def test_config_falls_back_for_missing_file_and_fields(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            self.assertEqual(state.load_config(path), DEFAULT_PARAMS)
+            state.save_json(path, {"temperature": 0.2})
+            self.assertEqual(state.load_config(path), DEFAULT_PARAMS | {"temperature": 0.2})
+            state.save_json(path, {"max_tokens": 0})
+            with self.assertRaises(ValueError):
+                state.load_config(path)
+
+    def test_config_changes_do_not_read_or_rewrite_history(self):
+        with tempfile.TemporaryDirectory() as directory, patch("builtins.print"):
+            config = Path(directory) / "config.json"
+            history = Path(directory) / "history.json"
+            history.write_text("broken history")
+            config_patch = patch.object(cli, "CONFIG_PATH", config)
+            config_patch.start()
+            self.addCleanup(config_patch.stop)
+            flags = ["--history", str(history)]
+            cli.main(flags + ["--temperature", "0.2"])
+            self.assertEqual(state.load_config(config)["temperature"], 0.2)
+            cli.main(flags + ["--reset-config"])
+            self.assertEqual(state.load_config(config), DEFAULT_PARAMS)
+            self.assertEqual(history.read_text(), "broken history")
 
     def test_failed_request_does_not_change_history(self):
         with tempfile.TemporaryDirectory() as directory, patch("builtins.print"), patch.object(cli, "LLMClient") as constructor:
             path = Path(directory) / "state.json"
-            state.save_state(path, state.new_state())
+            config_patch = patch.object(cli, "CONFIG_PATH", Path(directory) / "config.json")
+            config_patch.start()
+            self.addCleanup(config_patch.stop)
+            state.save_json(path, {})
             before = path.read_text()
             constructor.return_value.provider = "google"
             constructor.return_value.generate.side_effect = RuntimeError("failed")
@@ -406,9 +444,12 @@ class CLITests(unittest.TestCase):
     def test_batch_uses_saved_config_and_leaves_history_unchanged(self):
         with tempfile.TemporaryDirectory() as directory, patch("builtins.print") as output, patch.object(cli, "LLMClient") as constructor:
             path = Path(directory) / "state.json"
-            saved = state.new_state()
-            saved["params"] = dict(system="Brief", temperature=0.3, max_tokens=100)
-            state.save_state(path, saved)
+            config_path = Path(directory) / "config.json"
+            config_patch = patch.object(cli, "CONFIG_PATH", config_path)
+            config_patch.start()
+            self.addCleanup(config_patch.stop)
+            state.save_json(config_path, dict(system="Brief", temperature=0.3, max_tokens=100))
+            state.save_json(path, {})
             before = path.read_text()
             constructor.return_value.generate_batch.return_value = ["report1", "report2"]
             cli.main(["--history", str(path), "--batch", "First", "Second"])
@@ -439,9 +480,14 @@ class CLITests(unittest.TestCase):
             path = Path(directory) / "state.json"
             path.write_text("broken")
             with self.assertRaises(ValueError):
-                state.load_state(path)
+                state.load_history(path)
+            config_path = Path(directory) / "config.json"
+            config_patch = patch.object(cli, "CONFIG_PATH", config_path)
+            config_patch.start()
+            self.addCleanup(config_patch.stop)
             cli.main(["--reset-all", "--history", str(path)])
-            self.assertEqual(state.load_state(path), state.new_state())
+            self.assertEqual(state.load_history(path), {})
+            self.assertEqual(state.load_config(config_path), DEFAULT_PARAMS)
 
 
 if __name__ == "__main__":

@@ -9,7 +9,8 @@ from pydantic import ValidationError
 
 from ia_agents.llm.core import LLMClient
 from ia_agents.llm.tool_calling import result_messages
-from ia_agents.tools import TICKET_TOOLS
+from ia_agents.tools import TICKET_TOOLS, TOOL_GROUPS
+from ia_agents import cli
 
 
 def google_response(name=None, arguments=None):
@@ -51,6 +52,32 @@ class ToolTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "exceeded"):
                 llm.generate_with_tools("Find ticket", max_rounds=1)
             self.assertEqual(generate.call_count, 2)
+
+    def test_multiple_groups_reach_model_and_execute(self):
+        llm = LLMClient.__new__(LLMClient)
+        llm.provider = "google"
+        groups = {"status": TICKET_TOOLS[:1], "escalation": TICKET_TOOLS[1:]}
+        with patch.dict(TOOL_GROUPS, groups), patch.object(llm, "generate", side_effect=[
+            google_response("escalate_ticket", {"ticket_id": "T-001", "reason": "Outage"}),
+            google_response(),
+        ]) as generate:
+            args = cli.parse_cli_args(["Hello", "--tools", "status", "escalation", "status"])
+            self.assertEqual(args.tools, ["status", "escalation", "status"])
+            _, history = llm.generate_with_tools("Escalate", tool_groups=args.tools)
+            self.assertEqual(generate.call_args.kwargs["tools"], TICKET_TOOLS)
+            result = history[2]["parts"][0]["function_response"]["response"]
+            self.assertEqual(result["status"], "Escalated (mock)")
+
+    def test_groups_are_validated_before_model_call(self):
+        llm = LLMClient.__new__(LLMClient)
+        with patch.object(llm, "generate") as generate:
+            for groups in ([], ["unknown"]):
+                with self.subTest(groups=groups), self.assertRaises(ValueError):
+                    llm.generate_with_tools("Hello", tool_groups=groups)
+            generate.assert_not_called()
+        for argv in (["Hello", "--tools"], ["Hello", "--tools", "unknown"]):
+            with patch("sys.stderr"), self.assertRaises(SystemExit):
+                cli.parse_cli_args(argv)
 
     def test_result_ids_are_preserved(self):
         results = [("call-1", "get_ticket_status", {"status": "Resolved"})]

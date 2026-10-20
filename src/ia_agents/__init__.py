@@ -1,1 +1,1 @@
-"""Capstone project for the AI agent development course."""
+"""Capstone project for ITBA's AI agent development course."""

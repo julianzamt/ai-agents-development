@@ -4,52 +4,76 @@ import time
 from pathlib import Path
 
 from .schemas import SupportQuery
-from .llm.config import DEFAULT_PARAMS, STATE_PATH
+from .tools import TOOL_GROUPS
+from .llm.config import DEFAULT_PARAMS, CONFIG_PATH, HISTORY_PATH
 from .llm.core import LLMClient
 from .llm.responses import conversation_turn, format_response
-from .llm.state import load_state, new_state, save_state
+from .llm.state import load_config, load_history, save_json
 
 
 def parse_cli_args(argv=None):
     parser = argparse.ArgumentParser(description="Query an LLM with persistent history and configuration.")
+
+    # Positional args
     for name, kind in (("prompt", str), ("system", str), ("temperature", float), ("max_tokens", int)):
         parser.add_argument(f"{name}_pos", nargs="?", type=kind, metavar=name)
+
+    # Optional named args
     parser.add_argument("--prompt")
-    parser.add_argument("--tools", choices=["tickets"], help="Enable mock ticket tools")
+    parser.add_argument("--system")
+    parser.add_argument("--temp", "--temperature", dest="temperature", type=float)
+    parser.add_argument("--max-tokens", "--max_tokens", dest="max_tokens", type=int)
+
+    # Batched queries
+    parser.add_argument("--batch", nargs="+", metavar="PROMPT",
+                            help="Run 1 to 3 independent queries using the current configuration")
+
+    # Use a different chat history file than the deafult
+    parser.add_argument("--history", type=Path, default=HISTORY_PATH,
+                            help="Conversation history JSON (default: data/chat_history.json)")
+    # Gives the LLM access to the specified sets of tools
+    parser.add_argument("--tools", nargs="+", choices=list(TOOL_GROUPS),
+                        help="Enable the selected tool groups")
+
+    # Structured response opts. --structured-attempts and --structured-mode are silently ignored if --structured is not set.
     parser.add_argument("--structured", choices=["support"],
-                        help="Return a validated SupportQuery using native structured output")
+                        help="Return structured output validated against the selected schema")
     parser.add_argument("--structured-attempts", type=int, default=3,
                         help="Maximum structured validation attempts (default: 3)")
     parser.add_argument("--structured-mode", choices=["native", "prompt"], default="native",
                         help="Native schema enforcement or universal prompt-only JSON")
-    parser.add_argument("--batch", nargs="+", metavar="PROMPT",
-                        help="Run 1 to 3 independent queries using the current configuration")
-    parser.add_argument("--system")
-    parser.add_argument("--temp", "--temperature", dest="temperature", type=float)
-    parser.add_argument("--max-tokens", "--max_tokens", dest="max_tokens", type=int)
-    parser.add_argument("--history", type=Path, default=STATE_PATH,
-                        help="Configuration and history JSON (default: data/client_state.json)")
+
+    # Local store management
     resets = parser.add_mutually_exclusive_group()
     resets.add_argument("--reset", action="store_true", help="Clear history only")
     resets.add_argument("--reset-all", action="store_true", help="Clear history and restore default configuration")
     resets.add_argument("--reset-config", action="store_true", help="Restore default configuration only")
+
+    # For passing args into tests
     args = parser.parse_args(argv)
+
+    # Create the values dict. At this stage, missing values stay None; saved configuration and defaults are applied later.
     values = {name: getattr(args, name) if getattr(args, name) is not None
               else getattr(args, f"{name}_pos")
               for name in ("prompt", "system", "temperature", "max_tokens")}
-    if values["prompt"] is not None and not values["prompt"].strip():
+
+    # Sanity checks
+    if values["prompt"] is not None and not values["prompt"].strip(): # No empty prompts
         parser.error("The prompt must not be empty.")
+    
     if args.batch is not None:
         if len(args.batch) > 3 or any(not prompt.strip() for prompt in args.batch):
             parser.error("--batch accepts 1 to 3 non-empty prompts.")
         if values["prompt"] is not None:
             parser.error("--batch cannot be combined with an individual prompt.")
+    
     if args.structured and (args.batch or values["prompt"] is None):
         parser.error("--structured requires an individual prompt and cannot be used with --batch.")
     if args.tools and (args.structured or args.batch or values["prompt"] is None):
         parser.error("--tools requires one prompt and cannot be combined with --structured or --batch.")
     if args.structured_attempts <= 0:
         parser.error("--structured-attempts must be positive.")
+
     temp = values["temperature"]
     if temp is not None and (not math.isfinite(temp) or temp < 0):
         parser.error("Temperature must be finite and non-negative.")
@@ -66,34 +90,42 @@ def parse_cli_args(argv=None):
 def main(argv=None):
     args = parse_cli_args(argv)
     try:
-        state = new_state() if args.reset_all else load_state(args.history)
-        if args.reset:
-            state["history"] = {}
-        if args.reset_config:
-            state["params"] = dict(DEFAULT_PARAMS)
+        if CONFIG_PATH.resolve() == args.history.resolve():
+            raise ValueError("Configuration and history must use different files.")
+        saved_params = dict(DEFAULT_PARAMS) if args.reset_all or args.reset_config else load_config(CONFIG_PATH)
+        histories = {} if args.reset_all or args.reset else (
+            load_history(args.history) if args.prompt is not None and not args.batch else {}
+        )
         explicit = {name: getattr(args, name) for name in DEFAULT_PARAMS
                     if getattr(args, name) is not None}
-        params = state["params"] | explicit
+        params = saved_params | explicit
         if args.batch:
             llm = LLMClient()
             reports = llm.generate_batch(args.batch, **params, report=True)
-            if args.reset or args.reset_all or args.reset_config:
-                save_state(args.history, state)
+            if args.reset or args.reset_all:
+                save_json(args.history, histories)
+            if args.reset_config or args.reset_all:
+                save_json(CONFIG_PATH, saved_params)
             for index, (prompt, report) in enumerate(zip(args.batch, reports), start=1):
                 print(f"[{index}] {prompt}\n{report}\n")
             return
         if args.prompt is None:
-            state["params"] = params
-            save_state(args.history, state)
-            print(f"Configuration saved to {args.history}: {params}")
+            if explicit or args.reset_config or args.reset_all:
+                save_json(CONFIG_PATH, params)
+            if args.reset or args.reset_all:
+                save_json(args.history, histories)
+            if explicit or args.reset_config or args.reset_all:
+                print(f"Configuration saved to {CONFIG_PATH}: {params}")
+            if args.reset or args.reset_all:
+                print(f"History cleared in {args.history}")
             return
         # Parameters alongside a prompt override only this request.
         llm = LLMClient()
-        history = state["history"].get(llm.provider, [])
+        history = histories.get(llm.provider, [])
         start = time.perf_counter()
         if args.tools:
             response, updated_history = llm.generate_with_tools(
-                args.prompt, **params, history=history
+                args.prompt, **params, history=history, tool_groups=args.tools
             )
         elif args.structured:
             result, response = llm.generate_structured(
@@ -104,11 +136,13 @@ def main(argv=None):
             response = llm.generate(args.prompt, **params, history=history)
         latency = time.perf_counter() - start
         if args.tools:
-            state["history"][llm.provider] = updated_history
+            histories[llm.provider] = updated_history
         else:
             turn = conversation_turn(llm.provider, args.prompt, response)
-            state["history"][llm.provider] = history + turn
-        save_state(args.history, state)
+            histories[llm.provider] = history + turn
+        save_json(args.history, histories)
+        if args.reset_config or args.reset_all:
+            save_json(CONFIG_PATH, saved_params)
         report = format_response(llm.provider, response, latency)
         if args.structured:
             report = report.split("Response: ", 1)[0] + "Response: " + result.model_dump_json(indent=2)

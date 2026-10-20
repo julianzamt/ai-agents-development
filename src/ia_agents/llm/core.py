@@ -117,10 +117,11 @@ class LLMClient:
             return response
 
     def generate_with_tools(self, prompt, system=None, temperature=0.7, max_tokens=500,
-                            history=None, *, max_rounds=3):
-        """Run the explicit mock ticket tool loop and return its complete history."""
+                            history=None, *, max_rounds=3, tool_groups=None):
+        """Run the selected tool groups in an explicit execution loop and return its complete history."""
         from .tool_calling import run_tools
-        return run_tools(self, prompt, system, temperature, max_tokens, history, max_rounds)
+        return run_tools(self, prompt, system, temperature, max_tokens, history, max_rounds,
+                         ["tickets"] if tool_groups is None else tool_groups)
 
     def generate_structured(
         self, prompt, schema_model, system=None, temperature=0.7, max_tokens=500,

@@ -48,3 +48,21 @@ TICKET_TOOLS = (
     Tool("escalate_ticket", "Simulate escalating a mock ticket with a reason; no real action.",
          EscalationArguments, escalate_ticket),
 )
+
+
+TOOL_GROUPS = {"tickets": TICKET_TOOLS}
+
+
+def select_tools(groups):
+    """Combine named groups, preserving order and avoiding duplicate tools."""
+    selected = {}
+    for group in groups:
+        if group not in TOOL_GROUPS:
+            raise ValueError(f"Unknown tool group '{group}'.")
+        for tool in TOOL_GROUPS[group]:
+            if tool.name in selected and selected[tool.name] != tool:
+                raise ValueError(f"Conflicting definitions for tool '{tool.name}'.")
+            selected[tool.name] = tool
+    if not selected:
+        raise ValueError("Select at least one tool group containing tools.")
+    return tuple(selected.values())

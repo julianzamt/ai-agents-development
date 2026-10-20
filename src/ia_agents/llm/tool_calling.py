@@ -4,7 +4,7 @@ import copy
 import json
 import logging
 
-from ..tools import TICKET_TOOLS
+from ..tools import select_tools
 
 logger = logging.getLogger(__name__)
 
@@ -63,18 +63,19 @@ def result_messages(provider, results):
             for call_id, name, result in results]
 
 
-def run_tools(llm, prompt, system, temperature, max_tokens, history, max_rounds):
+def run_tools(llm, prompt, system, temperature, max_tokens, history, max_rounds, tool_groups):
     if type(max_rounds) is not int or max_rounds <= 0:
         raise ValueError("max_rounds must be a positive integer.")
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("prompt must be a non-empty string.")
+    tools = select_tools(tool_groups)
     messages = copy.deepcopy(history or [])
     messages.append(user_message(llm.provider, prompt))
-    registry = {tool.name: tool for tool in TICKET_TOOLS}
+    registry = {tool.name: tool for tool in tools}
     # Allow a final model response after the last permitted execution round.
     for round_index in range(max_rounds + 1):
         response = llm.generate(None, system, temperature, max_tokens,
-                                history=messages, tools=TICKET_TOOLS)
+                                history=messages, tools=tools)
         assistant, calls = tool_requests(llm.provider, response)
         messages.append(assistant)
         if not calls:
@@ -91,6 +92,6 @@ def run_tools(llm, prompt, system, temperature, max_tokens, history, max_rounds)
             validated.append((call_id, tool, values))
         results = []
         for call_id, tool, arguments in validated:
-            logger.warning("Executing mock tool %s with arguments %s", tool.name, arguments)
+            logger.warning("Executing tool %s with arguments %s", tool.name, arguments)
             results.append((call_id, tool.name, tool.function(**arguments)))
         messages.extend(result_messages(llm.provider, results))
