@@ -34,11 +34,22 @@ You can also run `python -m ia_agents`. Parameters without a prompt are saved;
 with a prompt or batch, they override saved values for that invocation only.
 Batch queries use the current configuration but do not read or update history.
 
-Local state is stored in `data/client_state.json`, excluded from Git.
-`--history file.json` selects another file; relative paths resolve from the
-current working directory.
+TODO: Persist local history for batch calls, including structured batches. Currently,
+batch prompts and responses are not saved locally.
 
-- `--reset`: clear history.
+Saved configuration lives in `data/global_config.json`; conversation history lives
+in `data/chat_history.json`. Both are excluded from Git.
+The configuration path is fixed. Use `--history file.json` to select another
+history file; relative paths resolve from the current working directory.
+Configuration is a JSON object with `system`, `temperature`, and `max_tokens` fields. Missing files or
+fields fall back to `DEFAULT_PARAMS`; explicit CLI arguments override saved values.
+Arguments alongside a prompt apply only to that request. Without a prompt,
+configuration arguments are saved for future calls.
+
+Existing `data/client_state.json` files can be split by copying the `params`
+object into the configuration file and the `history` object into the history file.
+
+- `--reset-chat`: clear history.
 - `--reset-config`: restore default configuration.
 - `--reset-all`: reset both.
 
@@ -97,8 +108,17 @@ The client sends `SupportQuery`'s JSON Schema through the provider's native
 structured-output parameter, validates the returned JSON with Pydantic, and
 prints the validated object alongside latency and token counts. Saved parameters
 and conversation history still apply. Invalid output raises a clear error and
-is not added to history. `--structured` requires one prompt and cannot be
-combined with `--batch`.
+is not added to history. `--structured` accepts an individual prompt or a batch:
+
+```bash
+client --batch "My bill was charged twice" "I cannot log in" --structured support
+```
+
+Structured batches run independently with up to three workers and print validated
+results in input order. They use saved configuration without reading or updating
+conversation history. `--structured-mode` and `--structured-attempts` apply to each
+prompt separately. If any query exhausts its attempts, the command fails without
+printing partial batch results.
 
 From Python:
 
@@ -158,8 +178,23 @@ The model requests functions; application code executes them and sends results
 back through provider-native messages. Google AFC stays disabled. The loop
 supports up to three execution rounds plus a final response, rejects unknown
 tools, and saves the complete successful exchange, including signatures and
-tool results. Tool mode requires one prompt and cannot be combined with batch
-or structured-output mode. Saved parameters apply as usual.
+tool results for individual queries. Tool mode accepts an individual prompt or
+`--batch`, and can be combined with `--structured`. Saved parameters apply as usual.
+
+```bash
+client --batch "Check ticket T-001" "Check ticket T-002" --tools tickets
+client --batch "Classify ticket T-001 using its status" "Classify ticket T-002 using its status" --tools tickets --structured support
+```
+
+Each batch item runs its own tool loop with up to three workers, and reports appear
+in input order. Batch conversations are not saved locally. If a query fails, the
+batch command fails without printing partial results; other queries may already
+have executed their tools.
+
+When tools and structured output are combined, the tool conversation completes
+first. A separate request converts its transcript into the selected schema, using
+`--structured-mode` and `--structured-attempts`. Validation retries do not rerun
+tools. Individual queries save both stages in chat history.
 
 In Python, `LLMClient().generate_with_tools(prompt)` returns the final SDK
 response and updated history. Report latency covers the whole loop; token
@@ -184,3 +219,8 @@ network phases, structured repair attempts and tool rounds can increase total
 elapsed time. Structured validation retries remain distinct from transport
 backoff. Offline tests cover timeout retries, jitter, bounded exhaustion and
 provider timeout/retry settings.
+
+`--tools` accepts one or more registered tool group names, for example
+`client "Check T-001" --tools tickets`. Currently only `tickets` is registered.
+Additional groups can be registered in `TOOL_GROUPS`; selected groups are combined
+without duplicate tools.

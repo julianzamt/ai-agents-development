@@ -10,7 +10,8 @@ from unittest.mock import patch
 
 from ia_agents.llm.core import LLMClient
 from ia_agents.llm import providers
-from ia_agents.schemas import SupportQuery
+from ia_agents.schemas import SupportQuery, SCHEMAS
+from pydantic import BaseModel
 
 
 class StructuredTests(unittest.TestCase):
@@ -133,6 +134,38 @@ class StructuredTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "after 2 attempts"):
                 llm.generate_batch(["First"], schema_model=SupportQuery, max_attempts=2)
             self.assertEqual(generate.call_count, 2)
+
+    def test_cli_selects_registered_schema_in_every_execution_path(self):
+        class OtherSchema(BaseModel):
+            answer: str
+
+        result = OtherSchema(answer="Selected alternate schema")
+        response = SimpleNamespace(message=SimpleNamespace(
+            content=result.model_dump_json(),
+            model_dump=lambda **kwargs: {"role": "assistant", "content": result.model_dump_json()},
+        ))
+        for batch in (False, True):
+            for tools in (False, True):
+                with self.subTest(batch=batch, tools=tools), tempfile.TemporaryDirectory() as directory:
+                    with patch.dict(SCHEMAS, other=OtherSchema), patch.object(
+                        cli, "CONFIG_PATH", Path(directory) / "config.json"
+                    ), patch.object(cli, "LLMClient") as constructor, patch("builtins.print"):
+                        llm = constructor.return_value
+                        llm.provider = "ollama"
+                        llm.generate_batch.return_value = ["report"]
+                        llm.generate_structured.return_value = (result, response)
+                        llm.generate_with_tools.return_value = (response, [])
+                        argv = ["--batch", "Hello"] if batch else ["Hello"]
+                        argv += ["--structured", "other", "--history", str(Path(directory) / "history.json")]
+                        if tools:
+                            argv += ["--tools", "tickets"]
+                        cli.main(argv)
+                        if batch:
+                            self.assertIs(llm.generate_batch.call_args.kwargs["schema_model"], OtherSchema)
+                        elif tools:
+                            self.assertIs(llm.generate_with_tools.call_args.kwargs["schema_model"], OtherSchema)
+                        else:
+                            self.assertIs(llm.generate_structured.call_args.args[1], OtherSchema)
 
     def test_each_adapter_sends_native_schema(self):
         schema = SupportQuery.model_json_schema()

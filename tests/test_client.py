@@ -317,6 +317,14 @@ class ClientTests(unittest.TestCase):
 
 
 class CLITests(unittest.TestCase):
+    def test_history_cannot_use_configuration_path(self):
+        path = cli.CONFIG_PATH.parent / ".." / "data" / cli.CONFIG_PATH.name
+        with patch("sys.stderr") as stderr, self.assertRaises(SystemExit) as raised:
+            cli.parse_cli_args(["Hello", "--history", str(path)])
+        self.assertEqual(raised.exception.code, 2)
+        message = "".join(call.args[0] for call in stderr.write.call_args_list)
+        self.assertIn("Configuration and history must use different files.", message)
+
     def test_positionals_and_flag_precedence(self):
         args = cli.parse_cli_args(["Hello", "Be brief", "0.7", "100", "--temp", "0.3"])
         self.assertEqual(args.prompt, "Hello")
@@ -364,7 +372,7 @@ class CLITests(unittest.TestCase):
             self.assertEqual(state.load_config(config_path)["system"], "Be brief")
             self.assertEqual(len(state.load_history(path)["google"]), 4)
             config = state.load_config(config_path)
-            cli.main(flags + ["--reset"])
+            cli.main(flags + ["--reset-chat"])
             self.assertEqual(state.load_history(path), {})
             self.assertEqual(state.load_config(config_path), config)
             cli.main(flags + ["Hello"])

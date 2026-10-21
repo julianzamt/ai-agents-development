@@ -2,4 +2,6 @@
 
 from .support import SupportQuery
 
-__all__ = ["SupportQuery"]
+SCHEMAS = {"support": SupportQuery}
+
+__all__ = ["SupportQuery", "SCHEMAS"]

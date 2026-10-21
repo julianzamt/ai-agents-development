@@ -53,7 +53,7 @@ def load_history(path):
             raise ValueError("Invalid history structure")
         return history
     except (ValueError, TypeError) as error:
-        raise ValueError(f"Invalid history file {path}: {error}. Use --reset to clear history.") from error
+        raise ValueError(f"Invalid history file {path}: {error}. Use --reset-chat to clear history.") from error
 
 
 def save_json(path, value):
