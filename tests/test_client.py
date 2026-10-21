@@ -14,7 +14,7 @@ from anthropic import APITimeoutError as AnthropicAPITimeoutError
 from anthropic import RateLimitError as AnthropicRateLimitError
 from botocore.exceptions import ClientError, ReadTimeoutError
 from google.genai.errors import ClientError as GoogleClientError
-from ollama import ResponseError
+from ollama import Message, ResponseError
 from openai import APIStatusError as OpenAIAPIStatusError
 from openai import APITimeoutError as OpenAIAPITimeoutError
 from openai import RateLimitError as OpenAIRateLimitError
@@ -81,7 +81,7 @@ class ClientTests(unittest.TestCase):
             with self.subTest(provider=provider):
                 response = SimpleNamespace(content="Paris", usage={"tokens": 10})
                 with patch.object(providers, f"call_{provider}", return_value=response) as generate:
-                    result = self.select(provider).generate("Capital?", "Be concise", 0, 123)
+                    result = self.select(provider)._request("Capital?", "Be concise", 0, 123)
                     self.assertIs(result, response)
                     generate.assert_called_once_with("Capital?", "Be concise", 0, 123)
 
@@ -114,14 +114,14 @@ class ClientTests(unittest.TestCase):
                          "Latency: 1.000 s\nInput tokens: N/A\n"
                          "Output tokens: N/A\nResponse: (no text)")
 
-    def test_generate_report_measures_elapsed_time(self):
+    def test_generate_measures_elapsed_time(self):
         llm = self.select("ollama")
         response = SimpleNamespace(prompt_eval_count=0, eval_count=0,
-                                   message=SimpleNamespace(content="Paris"))
-        with patch.object(llm, "generate", return_value=response), patch.object(
+                                   message=Message(role="assistant", content="Paris"))
+        with patch.object(llm, "_request", return_value=response), patch.object(
             client.time, "perf_counter", side_effect=[10, 10.5]
         ):
-            self.assertEqual(llm.generate_report("Capital?"),
+            self.assertEqual(llm.generate("Capital?").report,
                              "Latency: 0.500 s\nInput tokens: 0\n"
                              "Output tokens: 0\nResponse: Paris")
 
@@ -154,7 +154,7 @@ class ClientTests(unittest.TestCase):
                 with patch.object(
                     providers, f"call_{provider}", side_effect=[error, error, "Paris"]
                 ) as generate:
-                    self.assertEqual(self.select(provider).generate("Capital?"), "Paris")
+                    self.assertEqual(self.select(provider)._request("Capital?"), "Paris")
                     self.assertEqual(generate.call_count, 3)
                     self.assertEqual(self.sleep.call_args_list, [call(1), call(2)])
 
@@ -162,7 +162,7 @@ class ClientTests(unittest.TestCase):
         error = sdk_error("google", 429)
         with patch.object(providers, "call_google", side_effect=error) as generate:
             with self.assertRaisesRegex(RuntimeError, "after 3 attempts") as raised:
-                client.LLMClient().generate("Hello")
+                client.LLMClient()._request("Hello")
             self.assertIs(raised.exception.__cause__, error)
             self.assertEqual(generate.call_count, 3)
             self.assertEqual(self.sleep.call_args_list, [call(1), call(2)])
@@ -173,7 +173,7 @@ class ClientTests(unittest.TestCase):
                 error = sdk_error(provider, 400)
                 with patch.object(providers, f"call_{provider}", side_effect=error) as generate:
                     with self.assertRaisesRegex(ValueError, "Invalid request") as raised:
-                        self.select(provider).generate("Hello")
+                        self.select(provider)._request("Hello")
                     self.assertIs(raised.exception.__cause__, error)
                     generate.assert_called_once()
         self.sleep.assert_not_called()
@@ -184,7 +184,7 @@ class ClientTests(unittest.TestCase):
                 error = sdk_error(provider, 403)
                 with patch.object(providers, f"call_{provider}", side_effect=error) as generate:
                     with self.assertRaises(type(error)) as raised:
-                        self.select(provider).generate("Hello")
+                        self.select(provider)._request("Hello")
                     self.assertIs(raised.exception, error)
                     generate.assert_called_once()
         self.sleep.assert_not_called()
@@ -192,7 +192,7 @@ class ClientTests(unittest.TestCase):
     def test_retry_delays_include_jitter_and_stop_after_success(self):
         self.jitter.side_effect = [0.25, 0.75]
         with patch.object(providers, "call_google", side_effect=[TimeoutError(), TimeoutError(), "OK"]):
-            self.assertEqual(self.select("google").generate("Hello"), "OK")
+            self.assertEqual(self.select("google")._request("Hello"), "OK")
         self.assertEqual(self.sleep.call_args_list, [call(1.25), call(2.75)])
         self.assertEqual(self.jitter.call_args_list, [call(0, 1), call(0, 1)])
 
@@ -208,7 +208,7 @@ class ClientTests(unittest.TestCase):
             with self.subTest(provider=provider):
                 self.sleep.reset_mock()
                 with patch.object(providers, f"call_{provider}", side_effect=[error, "Paris"]):
-                    self.assertEqual(self.select(provider).generate("Capital?"), "Paris")
+                    self.assertEqual(self.select(provider)._request("Capital?"), "Paris")
                     self.sleep.assert_called_once_with(1)
 
     def test_missing_credentials_and_unsupported_provider_are_clear(self):
@@ -228,7 +228,7 @@ class ClientTests(unittest.TestCase):
     def test_response_without_text_is_preserved_for_inspection(self):
         response = SimpleNamespace(text=None, prompt_feedback={"block_reason": "SAFETY"})
         with patch.object(providers, "call_google", return_value=response) as generate:
-            self.assertIs(client.LLMClient().generate("Hello"), response)
+            self.assertIs(client.LLMClient()._request("Hello"), response)
             generate.assert_called_once()
         self.sleep.assert_not_called()
 
@@ -240,7 +240,7 @@ class ClientTests(unittest.TestCase):
             return prompt.upper()
 
         prompts = [f"question {index}" for index in range(6)]
-        with patch.object(providers, "call_google", side_effect=answer):
+        with patch.object(client.LLMClient, "generate", side_effect=answer):
             self.assertEqual(client.LLMClient().generate_batch(prompts), [p.upper() for p in prompts])
         self.assertEqual(client.LLMClient().generate_batch([]), [])
 
@@ -358,7 +358,12 @@ class CLITests(unittest.TestCase):
                              dict(system="Be brief", temperature=0.3, max_tokens=100))
             llm = constructor.return_value
             llm.provider = "google"
-            llm.generate.return_value = response
+            def generate(prompt, **kwargs):
+                history = kwargs.get("history", [])
+                return SimpleNamespace(response=response,
+                    history=history + response_utils.conversation_turn("google", prompt, response),
+                    structured=None, report="report")
+            llm.generate.side_effect = generate
             cli.main(flags + ["My name is Julian"])
             llm.generate.assert_called_with("My name is Julian", system="Be brief", temperature=0.3,
                                             max_tokens=100, history=[])
@@ -428,6 +433,32 @@ class CLITests(unittest.TestCase):
                 cli.main(["Hello", "--history", str(path)])
             self.assertEqual(path.read_text(), before)
 
+    def test_resets_persist_before_single_and_batch_requests_fail(self):
+        for batch in (False, True):
+            for reset in ("--reset-chat", "--reset-config", "--reset-all"):
+                with self.subTest(batch=batch, reset=reset), tempfile.TemporaryDirectory() as directory:
+                    config = Path(directory) / "config.json"
+                    history = Path(directory) / "history.json"
+                    saved_config = DEFAULT_PARAMS | {"temperature": 0.2}
+                    saved_history = {"google": [{"role": "user", "parts": [{"text": "Before"}]}]}
+                    state.save_json(config, saved_config)
+                    state.save_json(history, saved_history)
+                    def fail(*args, **kwargs):
+                        self.assertEqual(state.load_config(config),
+                                         saved_config if reset == "--reset-chat" else DEFAULT_PARAMS)
+                        self.assertEqual(state.load_history(history),
+                                         saved_history if reset == "--reset-config" else {})
+                        self.assertEqual(kwargs["temperature"], 0.9)
+                        raise RuntimeError("Request failed")
+                    with patch.object(cli, "CONFIG_PATH", config), patch.object(cli, "LLMClient") as constructor:
+                        llm = constructor.return_value
+                        llm.provider = "google"
+                        llm.generate.side_effect = fail
+                        llm.generate_batch.side_effect = fail
+                        argv = ["--batch", "Hello"] if batch else ["Hello"]
+                        with self.assertRaisesRegex(SystemExit, "Request failed"):
+                            cli.main(argv + [reset, "--temperature", "0.9", "--history", str(history)])
+
     def test_adapters_forward_history_in_native_format(self):
         with patch.dict(os.environ, TEST_ENVIRONMENT, clear=True):
             for provider, target, method in (
@@ -459,11 +490,11 @@ class CLITests(unittest.TestCase):
             state.save_json(config_path, dict(system="Brief", temperature=0.3, max_tokens=100))
             state.save_json(path, {})
             before = path.read_text()
-            constructor.return_value.generate_batch.return_value = ["report1", "report2"]
+            constructor.return_value.generate_batch.return_value = [SimpleNamespace(report="report1"), SimpleNamespace(report="report2")]
             cli.main(["--history", str(path), "--batch", "First", "Second"])
             constructor.return_value.generate_batch.assert_called_once_with(
                 ["First", "Second"], system="Brief", temperature=0.3,
-                max_tokens=100, report=True)
+                max_tokens=100)
             self.assertEqual(path.read_text(), before)
             self.assertEqual(output.call_count, 2)
 
@@ -477,9 +508,8 @@ class CLITests(unittest.TestCase):
 
     def test_batch_forwards_config_and_returns_ordered_reports(self):
         llm = client.LLMClient.__new__(client.LLMClient)
-        with patch.object(llm, "generate_report", side_effect=lambda prompt, *args: prompt) as generate:
-            self.assertEqual(llm.generate_batch(["a", "b", "c"], "Brief", 0.3, 100,
-                                                report=True), ["a", "b", "c"])
+        with patch.object(llm, "generate", side_effect=lambda prompt, *args: prompt) as generate:
+            self.assertEqual(llm.generate_batch(["a", "b", "c"], "Brief", 0.3, 100), ["a", "b", "c"])
             generate.assert_has_calls([call(p, "Brief", 0.3, 100) for p in ["a", "b", "c"]],
                                       any_order=True)
 

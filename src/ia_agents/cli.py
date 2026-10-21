@@ -1,13 +1,11 @@
 import argparse
 import math
-import time
 from pathlib import Path
 
 from .schemas import SCHEMAS
 from .tools import TOOL_GROUPS
 from .llm.config import DEFAULT_PARAMS, CONFIG_PATH, HISTORY_PATH
 from .llm.core import LLMClient
-from .llm.responses import conversation_turn, format_response, response_details
 from .llm.state import load_config, load_history, save_json
 
 
@@ -29,7 +27,7 @@ def parse_cli_args(argv=None):
                             help="Run 1 to 3 independent queries using the current configuration")
 
     # Use a different chat history file than the deafult
-    parser.add_argument("--history", type=Path, default=HISTORY_PATH,
+    parser.add_argument("--history", dest="history_path", type=Path, default=HISTORY_PATH,
                             help="Conversation history JSON (default: data/chat_history.json)")
 
     # Gives the LLM access to the specified sets of tools
@@ -59,7 +57,7 @@ def parse_cli_args(argv=None):
               for name in ("prompt", "system", "temperature", "max_tokens")}
 
     # Sanity checks
-    if CONFIG_PATH.resolve() == args.history.resolve():
+    if CONFIG_PATH.resolve() == args.history_path.resolve():
         parser.error("Configuration and history must use different files.")
 
     if values["prompt"] is not None and not values["prompt"].strip(): # No empty prompts
@@ -89,92 +87,79 @@ def parse_cli_args(argv=None):
     if not (args.batch or args.reset_chat or args.reset_all or args.reset_config) and all(value is None for value in values.values()):
         parser.error("Provide a prompt, --batch, parameters to save, or a reset option.")
 
-    return argparse.Namespace(**values, history=args.history, reset_chat=args.reset_chat,
+    return argparse.Namespace(**values, history_path=args.history_path, reset_chat=args.reset_chat,
                               reset_all=args.reset_all, reset_config=args.reset_config, batch=args.batch, structured=args.structured,
                               structured_attempts=args.structured_attempts,
                               structured_mode=args.structured_mode, tools=args.tools)
 
+def prepare_execution(args):
+    """Prepare request parameters and persist explicit local changes before calling the API."""
+    config_params = dict(DEFAULT_PARAMS) if args.reset_all or args.reset_config else load_config(CONFIG_PATH)
+    explicit_params = {name: getattr(args, name) for name in DEFAULT_PARAMS
+                       if getattr(args, name) is not None}
+    params = config_params | explicit_params
+
+    has_query = args.prompt is not None or args.batch is not None
+
+    # Reset or save new default params
+    if args.reset_config or args.reset_all or (explicit_params and not has_query):
+        # Overrides supplied with a query apply only to that query.
+        saved_params = config_params if has_query else params
+        save_json(CONFIG_PATH, saved_params)
+        if not has_query:
+            print(f"Configuration saved to {CONFIG_PATH}: {saved_params}")
+
+    # Load if needed (single prompts, not used on batches yet), or reset chat history
+    if args.reset_chat or args.reset_all:
+        history_by_provider = {}
+        save_json(args.history_path, history_by_provider)
+        if not has_query:
+            print(f"History cleared in {args.history_path}")
+    elif args.prompt is not None:
+        history_by_provider = load_history(args.history_path)
+    else:
+        # Batches are independent; configuration-only commands do not need history.
+        history_by_provider = {}
+
+    return params, history_by_provider
+
+
+def build_generation_options(args):
+    """Build tool and schema options shared by batch and individual requests."""
+    options = {}
+    if args.structured:
+        options.update(schema_model=SCHEMAS[args.structured],
+                       max_attempts=args.structured_attempts,
+                       native=args.structured_mode == "native")
+    if args.tools:
+        options["tool_groups"] = args.tools
+    return options
+
+
 def main(argv=None):
     args = parse_cli_args(argv)
     try:
-        # Loads last chat history from each configured providers, if exist
-        history_by_provider = {} if args.reset_all or args.reset_chat else (
-            load_history(args.history) if args.prompt is not None and not args.batch else {}
-        )
-
-
-        # Overrides system config params with explicit user's requests if provided
-        config_params = dict(DEFAULT_PARAMS) if args.reset_all or args.reset_config else load_config(CONFIG_PATH)
-        explicit_params = {name: getattr(args, name) for name in DEFAULT_PARAMS
-                    if getattr(args, name) is not None}
-        params = config_params | explicit_params
-
-        if args.batch:
-            llm = LLMClient()
-            structured_options = {}
-            if args.structured:
-                structured_options = dict(schema_model=SCHEMAS[args.structured],
-                                          max_attempts=args.structured_attempts,
-                                          native=args.structured_mode == "native")
-            if args.tools:
-                structured_options["tool_groups"] = args.tools
-
-            # Api call
-            reports = llm.generate_batch(args.batch, **params, report=True, **structured_options)
-
-            if args.reset_chat or args.reset_all:
-                save_json(args.history, history_by_provider)
-            if args.reset_config or args.reset_all:
-                save_json(CONFIG_PATH, config_params)
-            for index, (prompt, report) in enumerate(zip(args.batch, reports), start=1):
-                print(f"[{index}] {prompt}\n{report}\n")
+        params, history_by_provider = prepare_execution(args)
+        if args.prompt is None and not args.batch:
             return
 
-        if args.prompt is None:
-            if explicit_params or args.reset_config or args.reset_all:
-                save_json(CONFIG_PATH, params)
-            if args.reset_chat or args.reset_all:
-                save_json(args.history, history_by_provider)
-            if explicit_params or args.reset_config or args.reset_all:
-                print(f"Configuration saved to {CONFIG_PATH}: {params}")
-            if args.reset_chat or args.reset_all:
-                print(f"History cleared in {args.history}")
-            return
-        # Parameters alongside a prompt override only this request.
         llm = LLMClient()
+        generation_options = build_generation_options(args)
+
+        # Batch api call
+        if args.batch:
+            results = llm.generate_batch(args.batch, **params, **generation_options)
+
+            for index, (prompt, result) in enumerate(zip(args.batch, results), start=1):
+                print(f"[{index}] {prompt}\n{result.report}\n")
+            return
+
+        # Single prompt api call
         history = history_by_provider.get(llm.provider, [])
-        start = time.perf_counter()
-        if args.tools:
-            structured_options = {}
-            if args.structured:
-                structured_options = dict(schema_model=SCHEMAS[args.structured],
-                                          max_attempts=args.structured_attempts,
-                                          native=args.structured_mode == "native")
-            response, updated_history = llm.generate_with_tools(
-                args.prompt, **params, history=history, tool_groups=args.tools, **structured_options
-            )
-        elif args.structured:
-            result, response = llm.generate_structured(
-                args.prompt, SCHEMAS[args.structured], **params, history=history, include_response=True,
-                max_attempts=args.structured_attempts, native=args.structured_mode == "native"
-            )
-        else:
-            response = llm.generate(args.prompt, **params, history=history)
-        latency = time.perf_counter() - start
-        if args.tools:
-            history_by_provider[llm.provider] = updated_history
-        else:
-            turn = conversation_turn(llm.provider, args.prompt, response)
-            history_by_provider[llm.provider] = history + turn
-        save_json(args.history, history_by_provider)
-        if args.reset_config or args.reset_all:
-            save_json(CONFIG_PATH, config_params)
-        report = format_response(llm.provider, response, latency)
-        if args.structured:
-            if args.tools:
-                text, _, _ = response_details(llm.provider, response)
-                result = SCHEMAS[args.structured].model_validate_json(text)
-            report = report.split("Response: ", 1)[0] + "Response: " + result.model_dump_json(indent=2)
-        print(report)
+        result = llm.generate(args.prompt, **params, history=history, **generation_options)
+        history_by_provider[llm.provider] = result.history
+        save_json(args.history_path, history_by_provider)
+        print(result.report)
+
     except (ValueError, RuntimeError, OSError) as error:
         raise SystemExit(str(error)) from None

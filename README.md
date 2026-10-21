@@ -53,6 +53,11 @@ object into the configuration file and the `history` object into the history fil
 - `--reset-config`: restore default configuration.
 - `--reset-all`: reset both.
 
+Local preparation runs before API calls: configuration is loaded and merged with
+CLI overrides, and requested resets are saved immediately. Resets remain in effect
+even if the subsequent request fails. Overrides alongside a query apply only to
+that query; configuration-only commands save them for future calls.
+
 ## Organization
 
 - `src/ia_agents/cli.py`: argument parsing and command workflow.
@@ -67,7 +72,18 @@ Import the client from Python:
 
 ```python
 from ia_agents.llm import LLMClient
+
+result = LLMClient().generate("Explain Python briefly")
+print(result.report)
 ```
+
+`generate()` returns a `GenerationResult` with `response` (the provider SDK response),
+`history` (the updated conversation), `structured` (the validated model, or `None`),
+`latency`, and `report`. Select tools with `tool_groups=["tickets"]` and structured
+output with `schema_model=SupportQuery`; both can be used together.
+`generate_batch(prompts, **options)` returns a list of the same results in input
+order. Each item uses the single-query generation flow. The CLI saves history for
+individual requests only.
 
 ## Tests
 
@@ -126,7 +142,10 @@ From Python:
 from ia_agents.llm import LLMClient
 from ia_agents.schemas import SupportQuery
 
-query = LLMClient().generate_structured("Classify this issue: my account is locked", SupportQuery)
+result = LLMClient().generate(
+    "Classify this issue: my account is locked", schema_model=SupportQuery,
+)
+query = result.structured
 ```
 
 Native mappings: Bedrock `outputConfig.textFormat`, Anthropic
@@ -155,7 +174,7 @@ client --structured support --structured-mode prompt --temp 0 --prompt "My accou
 provider schema enforcement, supporting the universal pattern from the notebook.
 Native mode remains the default; unsupported native requests are not silently
 retried in prompt mode. Python callers can pass `max_attempts=3` and `native=False`
-to `generate_structured()`.
+to `generate(..., schema_model=SupportQuery)`.
 
 Validation attempts are separate from transport retries: each validation attempt
 can use the existing bounded network retry policy. Report latency includes all
@@ -196,8 +215,9 @@ first. A separate request converts its transcript into the selected schema, usin
 `--structured-mode` and `--structured-attempts`. Validation retries do not rerun
 tools. Individual queries save both stages in chat history.
 
-In Python, `LLMClient().generate_with_tools(prompt)` returns the final SDK
-response and updated history. Report latency covers the whole loop; token
+In Python, `LLMClient().generate(prompt, tool_groups=["tickets"])` returns the same
+`GenerationResult` as other modes, including the final SDK response and updated
+history. Add `schema_model=SupportQuery` for validated structured output. Report latency covers the whole loop; token
 counts currently describe only the final response. No real API calls are made
 by the automated tests.
 

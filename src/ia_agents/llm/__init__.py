@@ -2,4 +2,6 @@
 
 from .core import LLMClient
 
-__all__ = ["LLMClient"]
+from .responses import GenerationResult
+
+__all__ = ["LLMClient", "GenerationResult"]

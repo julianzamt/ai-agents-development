@@ -10,6 +10,7 @@ from google.genai import types
 from pydantic import ValidationError
 
 from ia_agents.llm.core import LLMClient
+from ia_agents.llm import GenerationResult
 from ia_agents.llm.tool_calling import result_messages
 from ia_agents.tools import TICKET_TOOLS, TOOL_GROUPS
 from ia_agents import cli
@@ -24,6 +25,47 @@ def google_response(name=None, arguments=None):
 
 
 class ToolTests(unittest.TestCase):
+    def test_generate_and_batch_share_result_contract_for_all_modes(self):
+        llm = LLMClient.__new__(LLMClient)
+        llm.provider = "google"
+        data = SupportQuery(category="technical", urgency="low", summary="Ticket checked",
+                            requires_escalation=False)
+        for tools in (False, True):
+            for structured in (False, True):
+                with self.subTest(tools=tools, structured=structured):
+                    options = {}
+                    if tools:
+                        options["tool_groups"] = ["tickets"]
+                    if structured:
+                        options["schema_model"] = SupportQuery
+                    def respond(prompt, *args, **kwargs):
+                        if kwargs.get("tools") and len(kwargs["history"]) == 1:
+                            return google_response("get_ticket_status", {"ticket_id": "T-001"})
+                        response = google_response()
+                        if kwargs.get("schema"):
+                            response.candidates[0].content.parts[0].text = data.model_dump_json()
+                        return response
+                    with patch.object(llm, "_request", side_effect=respond):
+                        single = llm.generate("Check T-001", **options)
+                        batch = llm.generate_batch(["Check T-001", "Check T-001"], **options)
+                    for result in [single, *batch]:
+                        self.assertIsInstance(result, GenerationResult)
+                        self.assertIsInstance(result.response, types.GenerateContentResponse)
+                        self.assertEqual(result.structured, data if structured else None)
+                        self.assertGreaterEqual(result.latency, 0)
+                        self.assertIn("Response:", result.report)
+                        self.assertEqual(result.history[0]["parts"][0]["text"], "Check T-001")
+                        self.assertEqual(len(result.history), 6 if tools and structured else 4 if tools else 2)
+                    self.assertIsNot(batch[0].history, batch[1].history)
+
+    def test_invalid_schema_options_never_execute_tools(self):
+        llm = LLMClient.__new__(LLMClient)
+        with patch.object(llm, "_request") as request:
+            for options in ({"schema_model": dict}, {"schema_model": SupportQuery, "max_attempts": 0}):
+                with self.subTest(options=options), self.assertRaises(ValueError):
+                    llm.generate("Check T-001", tool_groups=["tickets"], **options)
+            request.assert_not_called()
+
     def test_missing_ticket_and_mock_escalation(self):
         self.assertEqual(TICKET_TOOLS[0].execute({"ticket_id": "T-999"})["status"], "Not found")
         self.assertEqual(TICKET_TOOLS[1].execute({"ticket_id": "T-001", "reason": "Outage"})["status"], "Escalated (mock)")
@@ -36,8 +78,9 @@ class ToolTests(unittest.TestCase):
         first = google_response("get_ticket_status", {"ticket_id": "T-999"})
         first.candidates[0].content.parts[0].thought_signature = b"\xff"
         final = google_response()
-        with patch.object(llm, "generate", side_effect=[first, final]) as generate:
-            response, history = llm.generate_with_tools("Find T-999")
+        with patch.object(llm, "_request", side_effect=[first, final]) as generate:
+            result = llm.generate("Find T-999", tool_groups=["tickets"])
+            response, history = result.response, result.history
             self.assertIs(response, final)
             self.assertEqual(len(history), 4)
             self.assertEqual(history[1]["parts"][0]["thought_signature"], b"\xff")
@@ -49,35 +92,35 @@ class ToolTests(unittest.TestCase):
         llm = LLMClient.__new__(LLMClient)
         llm.provider = "google"
         for name, args in [("unknown", {}), ("get_ticket_status", {"ticket_id": "bad"})]:
-            with patch.object(llm, "generate", return_value=google_response(name, args)):
+            with patch.object(llm, "_request", return_value=google_response(name, args)):
                 with self.assertRaises(ValueError):
-                    llm.generate_with_tools("Find ticket")
-        with patch.object(llm, "generate", return_value=google_response("get_ticket_status", {"ticket_id": "T-001"})) as generate:
+                    llm.generate("Find ticket", tool_groups=["tickets"])
+        with patch.object(llm, "_request", return_value=google_response("get_ticket_status", {"ticket_id": "T-001"})) as generate:
             with self.assertRaisesRegex(RuntimeError, "exceeded"):
-                llm.generate_with_tools("Find ticket", max_rounds=1)
+                llm.generate("Find ticket", tool_groups=["tickets"], max_rounds=1)
             self.assertEqual(generate.call_count, 2)
 
     def test_multiple_groups_reach_model_and_execute(self):
         llm = LLMClient.__new__(LLMClient)
         llm.provider = "google"
         groups = {"status": TICKET_TOOLS[:1], "escalation": TICKET_TOOLS[1:]}
-        with patch.dict(TOOL_GROUPS, groups), patch.object(llm, "generate", side_effect=[
+        with patch.dict(TOOL_GROUPS, groups), patch.object(llm, "_request", side_effect=[
             google_response("escalate_ticket", {"ticket_id": "T-001", "reason": "Outage"}),
             google_response(),
         ]) as generate:
             args = cli.parse_cli_args(["Hello", "--tools", "status", "escalation", "status"])
             self.assertEqual(args.tools, ["status", "escalation", "status"])
-            _, history = llm.generate_with_tools("Escalate", tool_groups=args.tools)
+            history = llm.generate("Escalate", tool_groups=args.tools).history
             self.assertEqual(generate.call_args.kwargs["tools"], TICKET_TOOLS)
             result = history[2]["parts"][0]["function_response"]["response"]
             self.assertEqual(result["status"], "Escalated (mock)")
 
     def test_groups_are_validated_before_model_call(self):
         llm = LLMClient.__new__(LLMClient)
-        with patch.object(llm, "generate") as generate:
+        with patch.object(llm, "_request") as generate:
             for groups in ([], ["unknown"]):
                 with self.subTest(groups=groups), self.assertRaises(ValueError):
-                    llm.generate_with_tools("Hello", tool_groups=groups)
+                    llm.generate("Hello", tool_groups=groups)
             generate.assert_not_called()
         for argv in (["Hello", "--tools"], ["Hello", "--tools", "unknown"]):
             with patch("sys.stderr"), self.assertRaises(SystemExit):
@@ -115,7 +158,7 @@ class ToolTests(unittest.TestCase):
                     )
                     return response
                 with patch.object(cli, "CONFIG_PATH", config), patch.object(cli, "LLMClient", return_value=llm), patch.object(
-                    llm, "generate", side_effect=respond
+                    llm, "_request", side_effect=respond
                 ), patch("builtins.print") as output:
                     argv = ["--history", str(history), "--batch", "T-001", "T-002", "--tools", "tickets"]
                     if mode:
@@ -144,7 +187,7 @@ class ToolTests(unittest.TestCase):
             config = Path(directory) / "config.json"
             history = Path(directory) / "history.json"
             with patch.object(cli, "CONFIG_PATH", config), patch.object(cli, "LLMClient", return_value=llm), patch.object(
-                llm, "generate", side_effect=[
+                llm, "_request", side_effect=[
                     google_response("get_ticket_status", {"ticket_id": "T-001"}),
                     google_response(), final,
                 ]
@@ -158,7 +201,7 @@ class ToolTests(unittest.TestCase):
     def test_structured_failure_does_not_repeat_tool_execution(self):
         llm = LLMClient.__new__(LLMClient)
         llm.provider = "google"
-        with patch.object(llm, "generate", side_effect=[
+        with patch.object(llm, "_request", side_effect=[
             google_response("get_ticket_status", {"ticket_id": "T-001"}),
             google_response(), google_response(), google_response(),
         ]) as generate:
@@ -171,7 +214,7 @@ class ToolTests(unittest.TestCase):
     def test_batch_tool_failure_propagates(self):
         llm = LLMClient.__new__(LLMClient)
         llm.provider = "google"
-        with patch.object(llm, "generate", return_value=google_response("unknown", {})):
+        with patch.object(llm, "_request", return_value=google_response("unknown", {})):
             with self.assertRaisesRegex(ValueError, "Unknown tool"):
                 llm.generate_batch(["Check ticket"], tool_groups=["tickets"])
 

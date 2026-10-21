@@ -12,6 +12,7 @@ from ia_agents.llm.core import LLMClient
 from ia_agents.llm import providers
 from ia_agents.schemas import SupportQuery, SCHEMAS
 from pydantic import BaseModel
+from ollama import Message
 
 
 class StructuredTests(unittest.TestCase):
@@ -20,25 +21,25 @@ class StructuredTests(unittest.TestCase):
         llm.provider = "ollama"
         data = SupportQuery(category="technical", urgency="high", summary="Outage",
                             requires_escalation=True)
-        response = SimpleNamespace(message=SimpleNamespace(content=data.model_dump_json()))
-        with patch.object(llm, "generate", return_value=response) as generate:
-            self.assertEqual(llm.generate_structured("Classify", SupportQuery), data)
+        response = SimpleNamespace(message=Message(role="assistant", content=data.model_dump_json()))
+        with patch.object(llm, "_request", return_value=response) as generate:
+            self.assertEqual(llm.generate("Classify", schema_model=SupportQuery).structured, data)
             self.assertEqual(generate.call_args.kwargs["schema"], SupportQuery.model_json_schema())
             response.message.content = '{"category": "unknown"}'
             with self.assertRaisesRegex(ValueError, "Invalid structured response"):
-                llm.generate_structured("Classify", SupportQuery)
+                llm.generate("Classify", schema_model=SupportQuery)
 
     def test_invalid_json_is_repaired_with_feedback(self):
         llm = LLMClient.__new__(LLMClient)
         llm.provider = "ollama"
         data = SupportQuery(category="technical", urgency="high", summary="Outage",
                             requires_escalation=True)
-        invalid = SimpleNamespace(message=SimpleNamespace(content="not JSON"))
-        valid = SimpleNamespace(message=SimpleNamespace(content=data.model_dump_json()))
+        invalid = SimpleNamespace(message=Message(role="assistant", content="not JSON"))
+        valid = SimpleNamespace(message=Message(role="assistant", content=data.model_dump_json()))
         history = [{"role": "user", "content": "Earlier"}]
-        with patch.object(llm, "generate", side_effect=[invalid, valid]) as generate:
-            result, response = llm.generate_structured("Classify", SupportQuery,
-                history=history, include_response=True)
+        with patch.object(llm, "_request", side_effect=[invalid, valid]) as generate:
+            generated = llm.generate("Classify", schema_model=SupportQuery, history=history)
+            result, response = generated.structured, generated.response
             self.assertEqual(result, data)
             self.assertIs(response, valid)
             self.assertEqual(generate.call_count, 2)
@@ -51,10 +52,10 @@ class StructuredTests(unittest.TestCase):
     def test_exhaustion_is_bounded_and_preserves_validation_error(self):
         llm = LLMClient.__new__(LLMClient)
         llm.provider = "ollama"
-        invalid = SimpleNamespace(message=SimpleNamespace(content="{}"))
-        with patch.object(llm, "generate", return_value=invalid) as generate:
+        invalid = SimpleNamespace(message=Message(role="assistant", content="{}"))
+        with patch.object(llm, "_request", return_value=invalid) as generate:
             with self.assertRaisesRegex(ValueError, "after 2 attempts") as raised:
-                llm.generate_structured("Classify", SupportQuery, max_attempts=2)
+                llm.generate("Classify", schema_model=SupportQuery, max_attempts=2)
             self.assertEqual(generate.call_count, 2)
             self.assertIsNotNone(raised.exception.__cause__)
 
@@ -63,22 +64,22 @@ class StructuredTests(unittest.TestCase):
         llm.provider = "ollama"
         data = SupportQuery(category="technical", urgency="high", summary="Outage",
                             requires_escalation=True)
-        valid = SimpleNamespace(message=SimpleNamespace(content=data.model_dump_json()))
-        with patch.object(llm, "generate", return_value=valid) as generate:
-            self.assertEqual(llm.generate_structured("Classify", SupportQuery, native=False), data)
+        valid = SimpleNamespace(message=Message(role="assistant", content=data.model_dump_json()))
+        with patch.object(llm, "_request", return_value=valid) as generate:
+            self.assertEqual(llm.generate("Classify", schema_model=SupportQuery, native=False).structured, data)
             self.assertIsNone(generate.call_args.kwargs["schema"])
             self.assertIn('"requires_escalation"', generate.call_args.args[0])
-        with patch.object(llm, "generate", side_effect=RuntimeError("Authentication failed")) as generate:
+        with patch.object(llm, "_request", side_effect=RuntimeError("Authentication failed")) as generate:
             with self.assertRaisesRegex(RuntimeError, "Authentication"):
-                llm.generate_structured("Classify", SupportQuery)
+                llm.generate("Classify", schema_model=SupportQuery)
             self.assertEqual(generate.call_count, 1)
 
     def test_invalid_attempt_limit_is_rejected_without_request(self):
         llm = LLMClient.__new__(LLMClient)
-        with patch.object(llm, "generate") as generate:
+        with patch.object(llm, "_request") as generate:
             for count in (0, -1, True, 1.5):
                 with self.subTest(count=count), self.assertRaises(ValueError):
-                    llm.generate_structured("Classify", SupportQuery, max_attempts=count)
+                    llm.generate("Classify", schema_model=SupportQuery, max_attempts=count)
             generate.assert_not_called()
 
     def test_structured_batch_retries_independently_and_preserves_order(self):
@@ -91,10 +92,10 @@ class StructuredTests(unittest.TestCase):
             text = "invalid" if original == "First" and attempts[original] == 1 else SupportQuery(
                 category="billing", urgency="low", summary=original,
                 requires_escalation=False).model_dump_json()
-            return SimpleNamespace(message=SimpleNamespace(content=text))
-        with patch.object(llm, "generate", side_effect=respond):
+            return SimpleNamespace(message=Message(role="assistant", content=text))
+        with patch.object(llm, "_request", side_effect=respond):
             results = llm.generate_batch(["First", "Second"], schema_model=SupportQuery)
-        self.assertEqual([result.summary for result in results], ["First", "Second"])
+        self.assertEqual([result.structured.summary for result in results], ["First", "Second"])
         self.assertEqual(attempts, {"First": 2, "Second": 1})
 
     def test_cli_structured_batch_reports_and_keeps_local_files(self):
@@ -102,7 +103,7 @@ class StructuredTests(unittest.TestCase):
         llm.provider = "ollama"
         data = SupportQuery(category="billing", urgency="low", summary="Duplicate charge",
                             requires_escalation=False)
-        response = SimpleNamespace(message=SimpleNamespace(content=data.model_dump_json()))
+        response = SimpleNamespace(message=Message(role="assistant", content=data.model_dump_json()))
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "config.json"
             history = Path(directory) / "history.json"
@@ -110,7 +111,7 @@ class StructuredTests(unittest.TestCase):
             history.write_text("History must not be read")
             for mode in ("native", "prompt"):
                 with patch.object(cli, "CONFIG_PATH", config), patch.object(cli, "LLMClient", return_value=llm), patch.object(
-                    llm, "generate", return_value=response
+                    llm, "_request", return_value=response
                 ) as generate, patch("builtins.print") as output:
                     cli.main(["--history", str(history), "--batch", "First", "Second",
                               "--structured", "support", "--structured-mode", mode,
@@ -129,8 +130,8 @@ class StructuredTests(unittest.TestCase):
     def test_structured_batch_propagates_validation_failure(self):
         llm = LLMClient.__new__(LLMClient)
         llm.provider = "ollama"
-        response = SimpleNamespace(message=SimpleNamespace(content="{}"))
-        with patch.object(llm, "generate", return_value=response) as generate:
+        response = SimpleNamespace(message=Message(role="assistant", content="{}"))
+        with patch.object(llm, "_request", return_value=response) as generate:
             with self.assertRaisesRegex(ValueError, "after 2 attempts"):
                 llm.generate_batch(["First"], schema_model=SupportQuery, max_attempts=2)
             self.assertEqual(generate.call_count, 2)
@@ -152,9 +153,9 @@ class StructuredTests(unittest.TestCase):
                     ), patch.object(cli, "LLMClient") as constructor, patch("builtins.print"):
                         llm = constructor.return_value
                         llm.provider = "ollama"
-                        llm.generate_batch.return_value = ["report"]
-                        llm.generate_structured.return_value = (result, response)
-                        llm.generate_with_tools.return_value = (response, [])
+                        generated = SimpleNamespace(response=response, history=[], structured=result, report="report")
+                        llm.generate_batch.return_value = [generated]
+                        llm.generate.return_value = generated
                         argv = ["--batch", "Hello"] if batch else ["Hello"]
                         argv += ["--structured", "other", "--history", str(Path(directory) / "history.json")]
                         if tools:
@@ -162,10 +163,8 @@ class StructuredTests(unittest.TestCase):
                         cli.main(argv)
                         if batch:
                             self.assertIs(llm.generate_batch.call_args.kwargs["schema_model"], OtherSchema)
-                        elif tools:
-                            self.assertIs(llm.generate_with_tools.call_args.kwargs["schema_model"], OtherSchema)
                         else:
-                            self.assertIs(llm.generate_structured.call_args.args[1], OtherSchema)
+                            self.assertIs(llm.generate.call_args.kwargs["schema_model"], OtherSchema)
 
     def test_each_adapter_sends_native_schema(self):
         schema = SupportQuery.model_json_schema()

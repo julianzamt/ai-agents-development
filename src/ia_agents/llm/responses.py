@@ -1,5 +1,21 @@
 """Response formatting and provider-native conversation messages."""
 
+from dataclasses import dataclass
+from typing import Any
+
+from pydantic import BaseModel
+
+
+@dataclass
+class GenerationResult:
+    """The same result shape for plain, tool and structured generation."""
+    response: Any
+    history: list
+    structured: BaseModel | None
+    latency: float
+    report: str
+
+
 def response_details(provider, response):
     """Extract text and token counts from a provider response."""
     def field(value, name, default=None):
@@ -51,9 +67,11 @@ def response_details(provider, response):
     return text, input_tokens, output_tokens
 
 
-def format_response(provider, response, latency):
+def format_response(provider, response, latency, *, structured=None):
     """Format SDK text and token usage; missing counts remain unknown."""
     text, input_tokens, output_tokens = response_details(provider, response)
+    if structured is not None:
+        text = structured.model_dump_json(indent=2)
     return (
         f"Latency: {latency:.3f} s\n"
         f"Input tokens: {input_tokens if input_tokens is not None else 'N/A'}\n"

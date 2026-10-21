@@ -74,7 +74,7 @@ def run_tools(llm, prompt, system, temperature, max_tokens, history, max_rounds,
     registry = {tool.name: tool for tool in tools}
     # Allow a final model response after the last permitted execution round.
     for round_index in range(max_rounds + 1):
-        response = llm.generate(None, system, temperature, max_tokens,
+        response = llm._request(None, system, temperature, max_tokens,
                                 history=messages, tools=tools)
         assistant, calls = tool_requests(llm.provider, response)
         messages.append(assistant)
