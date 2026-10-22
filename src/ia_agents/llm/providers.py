@@ -145,3 +145,14 @@ def call_ollama(prompt, system, temperature, max_tokens, history=None, schema=No
         return response
     finally:
         client.close()
+
+
+def get_provider_function(provider):
+    """Return the request function for the selected provider."""
+    return {
+        "bedrock": call_bedrock,
+        "anthropic": call_anthropic,
+        "openai": call_openai,
+        "google": call_google,
+        "ollama": call_ollama,
+    }[provider]

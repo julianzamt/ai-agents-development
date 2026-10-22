@@ -23,7 +23,7 @@ from .config import (
     PROVIDERS_ENV_VAR_NAMES,
     TRANSPORT_MAX_ATTEMPTS,
 )
-from .errors import classify_error
+from .errors import ErrorCategory, classify_error
 from .responses import GenerationResult, conversation_turn, format_response, response_details
 
 logger = logging.getLogger(__name__)
@@ -75,27 +75,22 @@ class LLMClient:
         schema=None,
         tools=None,
     ) -> Any:
-        """Return the full SDK response, with up to three attempts."""
+        """Return the full SDK response, with up to TRANSPORT_MAX_ATTEMPTS."""
         self._validate_request(prompt, system, temperature, max_tokens, history, tools)
 
-        provider_functions = {
-            "bedrock": providers.call_bedrock,
-            "anthropic": providers.call_anthropic,
-            "openai": providers.call_openai,
-            "google": providers.call_google,
-            "ollama": providers.call_ollama,
-        }
-        call_provider = provider_functions[self.provider]
+        call_provider = providers.get_provider_function(self.provider)
+        
+        options = {}
+        if history:
+            options["history"] = history
+        if schema is not None:
+            options["schema"] = schema
+        if tools:
+            options["tools"] = tools
+            
         max_attempts = TRANSPORT_MAX_ATTEMPTS
         for attempt in range(max_attempts):
             try:
-                options = {}
-                if history:
-                    options["history"] = history
-                if schema is not None:
-                    options["schema"] = schema
-                if tools:
-                    options["tools"] = tools
                 response = call_provider(prompt, system, temperature, max_tokens, **options)
             except ImportError as error:
                 raise RuntimeError(
@@ -104,11 +99,11 @@ class LLMClient:
                 ) from error
             except Exception as error:
                 category = classify_error(error, self.provider)
-                if category == "validation":
+                if category == ErrorCategory.VALIDATION:
                     raise ValueError(
                         f"Invalid request for '{self.provider}': {error}"
                     ) from error
-                if category != "retry":
+                if category != ErrorCategory.RETRY:
                     raise
                 if attempt == max_attempts - 1:
                     raise RuntimeError(
