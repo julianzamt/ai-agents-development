@@ -1,6 +1,5 @@
 """LLM client validation, retries and batch execution."""
 
-import copy
 import json
 import logging
 import math
@@ -25,8 +24,9 @@ from .config import (
     PROVIDERS_ENV_VAR_NAMES,
     TRANSPORT_MAX_ATTEMPTS,
 )
+from .conversation import Conversation
 from .errors import ErrorCategory, classify_error
-from .responses import GenerationResult, conversation_turn, format_response, response_details
+from .responses import GenerationResult, format_response, response_details
 
 logger = logging.getLogger(__name__)
 
@@ -141,14 +141,17 @@ class LLMClient:
             if type(max_attempts_for_structured_response) is not int or max_attempts_for_structured_response <= 0:
                 raise ValueError("max_attempts_for_structured_response must be a positive integer.")
 
-        messages = copy.deepcopy(history or [])
+        conversation = Conversation(self.provider, history)
+        request_history = list(conversation.messages)
+        conversation.add_user_message(prompt)
+        messages = conversation.messages
         structured = None
         request_prompt = prompt
         
         if tool_groups is not None:
             from .tool_calling import run_tools
-            response, messages = run_tools(
-                self, prompt, system, temperature, max_tokens, messages, max_tools_rounds, tool_groups,
+            response = run_tools(
+                self, system, temperature, max_tokens, conversation, max_tools_rounds, tool_groups,
             )
             if schema_model is not None:
                 from .state import json_default
@@ -162,14 +165,16 @@ class LLMClient:
         if schema_model is not None:
             structured, response = self._generate_structured(
                 request_prompt, schema_model, system, temperature, max_tokens,
-                history=None if tool_groups is not None else messages,
+                history=None if tool_groups is not None else request_history,
                 max_attempts_for_structured_response=max_attempts_for_structured_response, native=native,
             )
         elif tool_groups is None:
-            response = self._request(prompt, system, temperature, max_tokens, history=messages)
+            response = self._request(prompt, system, temperature, max_tokens, history=request_history)
 
         if tool_groups is None or schema_model is not None:
-            messages.extend(conversation_turn(self.provider, request_prompt, response))
+            if tool_groups is not None:
+                conversation.add_user_message(request_prompt)
+            conversation.add_assistant_response(response)
         latency = time.perf_counter() - start
         return GenerationResult(
             response=response, history=messages, structured=structured, latency=latency,

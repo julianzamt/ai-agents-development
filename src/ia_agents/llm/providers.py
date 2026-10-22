@@ -4,6 +4,7 @@ import json
 import os
 
 from .config import CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS
+from .conversation import request_messages
 
 def call_bedrock(prompt, system, temperature, max_tokens, history=None, schema=None, tools=None):
     import boto3
@@ -23,7 +24,7 @@ def call_bedrock(prompt, system, temperature, max_tokens, history=None, schema=N
             "modelId": os.environ.get(
                 "BEDROCK_MODEL_ID_CLAUDE", "global.anthropic.claude-sonnet-4-6"
             ),
-            "messages": list(history or []) + ([{"role": "user", "content": [{"text": prompt}]}] if prompt is not None else []),
+            "messages": request_messages("bedrock", history, prompt),
             "inferenceConfig": {
                 "temperature": temperature,
                 "maxTokens": max_tokens,
@@ -51,7 +52,7 @@ def call_anthropic(prompt, system, temperature, max_tokens, history=None, schema
         request = {
             "model": os.environ.get("ANTHROPIC_MODEL_ID", "claude-sonnet-4-6"),
             "max_tokens": max_tokens,
-            "messages": list(history or []) + ([{"role": "user", "content": prompt}] if prompt is not None else []),
+            "messages": request_messages("anthropic", history, prompt),
         }
         # As in the notebook, omit temperature: some Claude models reject it.
         if system is not None:
@@ -71,9 +72,7 @@ def call_openai(prompt, system, temperature, max_tokens, history=None, schema=No
     messages = []
     if system is not None:
         messages.append({"role": "system", "content": system})
-    messages.extend(history or [])
-    if prompt is not None:
-        messages.append({"role": "user", "content": prompt})
+    messages.extend(request_messages("openai", history, prompt))
     with OpenAI(
         api_key=os.environ["OPENAI_API_KEY"], max_retries=0, timeout=READ_TIMEOUT_SECONDS
     ) as client:
@@ -104,8 +103,7 @@ def call_google(prompt, system, temperature, max_tokens, history=None, schema=No
     ) as client:
         response = client.models.generate_content(
             model=os.environ.get("GOOGLE_MODEL_ID", "gemini-3.5-flash-lite"),
-            contents=(list(history or []) + ([{"role": "user", "parts": [{"text": prompt}]}]
-                      if prompt is not None else [])) if history or prompt is None else prompt,
+            contents=request_messages("google", history, prompt) if history or prompt is None else prompt,
             config=types.GenerateContentConfig(
                 automatic_function_calling=types.AutomaticFunctionCallingConfig(
                     disable=True,
@@ -129,9 +127,7 @@ def call_ollama(prompt, system, temperature, max_tokens, history=None, schema=No
     messages = []
     if system is not None:
         messages.append({"role": "system", "content": system})
-    messages.extend(history or [])
-    if prompt is not None:
-        messages.append({"role": "user", "content": prompt})
+    messages.extend(request_messages("ollama", history, prompt))
     client = Client(host=os.environ.get("OLLAMA_HOST"), timeout=READ_TIMEOUT_SECONDS)
     try:
         response = client.chat(

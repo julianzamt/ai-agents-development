@@ -117,6 +117,7 @@ class ToolTests(unittest.TestCase):
 
     def test_groups_are_validated_before_model_call(self):
         llm = LLMClient.__new__(LLMClient)
+        llm.provider = "google"
         with patch.object(llm, "_request") as generate:
             for groups in ([], ["unknown"]):
                 with self.subTest(groups=groups), self.assertRaises(ValueError):

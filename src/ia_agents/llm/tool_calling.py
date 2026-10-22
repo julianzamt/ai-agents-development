@@ -1,20 +1,12 @@
 """Provider-native tool messages and a bounded application-owned execution loop."""
 
-import copy
 import json
 import logging
 
 from ..tools import select_tools
+from .conversation import result_messages
 
 logger = logging.getLogger(__name__)
-
-
-def user_message(provider, prompt):
-    if provider == "google":
-        return {"role": "user", "parts": [{"text": prompt}]}
-    if provider == "bedrock":
-        return {"role": "user", "content": [{"text": prompt}]}
-    return {"role": "user", "content": prompt}
 
 
 def tool_requests(provider, response):
@@ -46,42 +38,22 @@ def tool_requests(provider, response):
     return message.model_dump(exclude_none=True, exclude={"parsed", "annotations"}), calls
 
 
-def result_messages(provider, results):
-    if provider == "google":
-        return [{"role": "user", "parts": [{"function_response": {
-            "name": name, "response": result, **({"id": call_id} if call_id else {})
-        }} for call_id, name, result in results]}]
-    if provider == "bedrock":
-        return [{"role": "user", "content": [{"toolResult": {
-            "toolUseId": call_id, "content": [{"json": result}]
-        }} for call_id, _, result in results]}]
-    if provider == "anthropic":
-        return [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": call_id,
-                    "content": json.dumps(result)} for call_id, _, result in results]}]
-    return [{"role": "tool", "content": json.dumps(result),
-             **({"tool_call_id": call_id} if provider == "openai" else {"tool_name": name})}
-            for call_id, name, result in results]
-
-
-def run_tools(llm, prompt, system, temperature, max_tokens, history, max_tools_rounds, tool_groups):
+def run_tools(llm, system, temperature, max_tokens, conversation, max_tools_rounds, tool_groups):
     if type(max_tools_rounds) is not int or max_tools_rounds <= 0:
         raise ValueError("max_tools_rounds must be a positive integer.")
-    if not isinstance(prompt, str) or not prompt.strip():
-        raise ValueError("prompt must be a non-empty string.")
     
     tools = select_tools(tool_groups)
-    messages = copy.deepcopy(history or [])
-    messages.append(user_message(llm.provider, prompt))
+    messages = conversation.messages
     
     registry = {tool.name: tool for tool in tools}
     # Allow a final model response after the last permitted execution round.
     for round_index in range(max_tools_rounds + 1):
         response = llm._request(None, system, temperature, max_tokens,
                                 history=messages, tools=tools)
-        assistant, calls = tool_requests(llm.provider, response)
-        messages.append(assistant)
+        _, calls = tool_requests(llm.provider, response)
+        conversation.add_assistant_response(response)
         if not calls:
-            return response, messages
+            return response
         if round_index == max_tools_rounds:
             raise RuntimeError(f"Tool calling exceeded {max_tools_rounds} execution rounds.")
         # Validate the whole round before running any registered function.
@@ -96,4 +68,4 @@ def run_tools(llm, prompt, system, temperature, max_tokens, history, max_tools_r
         for call_id, tool, arguments in validated:
             logger.warning("Executing tool %s with arguments %s", tool.name, arguments)
             results.append((call_id, tool.name, tool.function(**arguments)))
-        messages.extend(result_messages(llm.provider, results))
+        conversation.add_tool_results(results)

@@ -81,22 +81,10 @@ def format_response(provider, response, latency, *, structured=None):
 
 
 def conversation_turn(provider, prompt, response):
-    if provider == "google":
-        candidates = response.candidates or []
-        if not candidates or candidates[0].content is None:
-            raise ValueError("Google returned no content to save in history.")
-        return [{"role": "user", "parts": [{"text": prompt}]},
-                candidates[0].content.model_dump(exclude_none=True)]
-    if provider == "bedrock":
-        return [{"role": "user", "content": [{"text": prompt}]},
-                response["output"]["message"]]
-    if provider == "anthropic":
-        return [{"role": "user", "content": prompt},
-                {"role": "assistant", "content": [part.model_dump(exclude_none=True)
-                                                  for part in response.content]}]
-    if provider == "openai":
-        message = response.choices[0].message
-        return [{"role": "user", "content": prompt},
-                message.model_dump(exclude_none=True, exclude={"parsed", "annotations"})]
-    return [{"role": "user", "content": prompt},
-            response.message.model_dump(exclude_none=True)]
+    """Return a standalone turn using the shared conversation formatter."""
+    from .conversation import Conversation
+
+    conversation = Conversation(provider)
+    conversation.add_user_message(prompt)
+    conversation.add_assistant_response(response)
+    return conversation.messages
