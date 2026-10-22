@@ -181,7 +181,7 @@ class StructuredTests(unittest.TestCase):
                     operation = sdk
                     for name in method.split("."):
                         operation = getattr(operation, name)
-                    getattr(providers, f"call_{provider}")("Classify", schema=schema)
+                    getattr(providers, f"call_{provider}")("Classify", None, 0.7, 500, schema=schema)
                     value = operation.call_args.kwargs[key]
                     if provider == "google":
                         self.assertEqual(value.response_json_schema, schema)

@@ -154,7 +154,7 @@ class ClientTests(unittest.TestCase):
                 with patch.object(
                     providers, f"call_{provider}", side_effect=[error, error, "Paris"]
                 ) as generate:
-                    self.assertEqual(self.select(provider)._request("Capital?"), "Paris")
+                    self.assertEqual(self.select(provider)._request("Capital?", None, 0.7, 500), "Paris")
                     self.assertEqual(generate.call_count, 3)
                     self.assertEqual(self.sleep.call_args_list, [call(1), call(2)])
 
@@ -162,7 +162,7 @@ class ClientTests(unittest.TestCase):
         error = sdk_error("google", 429)
         with patch.object(providers, "call_google", side_effect=error) as generate:
             with self.assertRaisesRegex(RuntimeError, "after 3 attempts") as raised:
-                client.LLMClient()._request("Hello")
+                client.LLMClient()._request("Hello", None, 0.7, 500)
             self.assertIs(raised.exception.__cause__, error)
             self.assertEqual(generate.call_count, 3)
             self.assertEqual(self.sleep.call_args_list, [call(1), call(2)])
@@ -173,7 +173,7 @@ class ClientTests(unittest.TestCase):
                 error = sdk_error(provider, 400)
                 with patch.object(providers, f"call_{provider}", side_effect=error) as generate:
                     with self.assertRaisesRegex(ValueError, "Invalid request") as raised:
-                        self.select(provider)._request("Hello")
+                        self.select(provider)._request("Hello", None, 0.7, 500)
                     self.assertIs(raised.exception.__cause__, error)
                     generate.assert_called_once()
         self.sleep.assert_not_called()
@@ -184,7 +184,7 @@ class ClientTests(unittest.TestCase):
                 error = sdk_error(provider, 403)
                 with patch.object(providers, f"call_{provider}", side_effect=error) as generate:
                     with self.assertRaises(type(error)) as raised:
-                        self.select(provider)._request("Hello")
+                        self.select(provider)._request("Hello", None, 0.7, 500)
                     self.assertIs(raised.exception, error)
                     generate.assert_called_once()
         self.sleep.assert_not_called()
@@ -192,7 +192,7 @@ class ClientTests(unittest.TestCase):
     def test_retry_delays_include_jitter_and_stop_after_success(self):
         self.jitter.side_effect = [0.25, 0.75]
         with patch.object(providers, "call_google", side_effect=[TimeoutError(), TimeoutError(), "OK"]):
-            self.assertEqual(self.select("google")._request("Hello"), "OK")
+            self.assertEqual(self.select("google")._request("Hello", None, 0.7, 500), "OK")
         self.assertEqual(self.sleep.call_args_list, [call(1.25), call(2.75)])
         self.assertEqual(self.jitter.call_args_list, [call(0, 1), call(0, 1)])
 
@@ -208,7 +208,7 @@ class ClientTests(unittest.TestCase):
             with self.subTest(provider=provider):
                 self.sleep.reset_mock()
                 with patch.object(providers, f"call_{provider}", side_effect=[error, "Paris"]):
-                    self.assertEqual(self.select(provider)._request("Capital?"), "Paris")
+                    self.assertEqual(self.select(provider)._request("Capital?", None, 0.7, 500), "Paris")
                     self.sleep.assert_called_once_with(1)
 
     def test_missing_credentials_and_unsupported_provider_are_clear(self):
@@ -219,16 +219,16 @@ class ClientTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsupported LLM_PROVIDER"):
             client.LLMClient()
 
-    def test_default_is_bedrock_and_ollama_needs_no_credentials(self):
+    def test_configured_default_and_ollama_needs_no_credentials(self):
         os.environ.pop("LLM_PROVIDER")
-        self.assertEqual(client.LLMClient().provider, "bedrock")
+        self.assertEqual(client.LLMClient().provider, client.DEFAULT_PROVIDER)
         with patch.dict(os.environ, {"LLM_PROVIDER": "ollama"}, clear=True):
             self.assertEqual(client.LLMClient().provider, "ollama")
 
     def test_response_without_text_is_preserved_for_inspection(self):
         response = SimpleNamespace(text=None, prompt_feedback={"block_reason": "SAFETY"})
         with patch.object(providers, "call_google", return_value=response) as generate:
-            self.assertIs(client.LLMClient()._request("Hello"), response)
+            self.assertIs(client.LLMClient()._request("Hello", None, 0.7, 500), response)
             generate.assert_called_once()
         self.sleep.assert_not_called()
 
@@ -474,7 +474,7 @@ class CLITests(unittest.TestCase):
                     for name in method.split("."):
                         operation = getattr(operation, name)
                     history = [{"role": "user", "parts": [{"text": "Before"}]}] if provider == "google" else [{"role": "user", "content": "Before"}]
-                    getattr(providers, f"call_{provider}")("Now", history=history)
+                    getattr(providers, f"call_{provider}")("Now", None, 0.7, 500, history=history)
                     messages = operation.call_args.kwargs["contents" if provider == "google" else "messages"]
                     self.assertEqual(messages[0], history[0])
                     self.assertEqual(len(messages), 2)

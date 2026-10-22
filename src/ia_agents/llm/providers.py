@@ -5,7 +5,7 @@ import os
 
 from .config import CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS
 
-def call_bedrock(prompt, system=None, temperature=0.7, max_tokens=500, history=None, schema=None, tools=None):
+def call_bedrock(prompt, system, temperature, max_tokens, history=None, schema=None, tools=None):
     import boto3
     from botocore.config import Config
 
@@ -42,7 +42,7 @@ def call_bedrock(prompt, system=None, temperature=0.7, max_tokens=500, history=N
     return response
 
 
-def call_anthropic(prompt, system=None, temperature=0.7, max_tokens=500, history=None, schema=None, tools=None):
+def call_anthropic(prompt, system, temperature, max_tokens, history=None, schema=None, tools=None):
     from anthropic import Anthropic
 
     with Anthropic(
@@ -65,7 +65,7 @@ def call_anthropic(prompt, system=None, temperature=0.7, max_tokens=500, history
     return response
 
 
-def call_openai(prompt, system=None, temperature=0.7, max_tokens=500, history=None, schema=None, tools=None):
+def call_openai(prompt, system, temperature, max_tokens, history=None, schema=None, tools=None):
     from openai import OpenAI
 
     messages = []
@@ -91,7 +91,7 @@ def call_openai(prompt, system=None, temperature=0.7, max_tokens=500, history=No
     return response
 
 
-def call_google(prompt, system=None, temperature=0.7, max_tokens=500, history=None, schema=None, tools=None):
+def call_google(prompt, system, temperature, max_tokens, history=None, schema=None, tools=None):
     from google import genai
     from google.genai import types
 
@@ -123,7 +123,7 @@ def call_google(prompt, system=None, temperature=0.7, max_tokens=500, history=No
     return response
 
 
-def call_ollama(prompt, system=None, temperature=0.7, max_tokens=500, history=None, schema=None, tools=None):
+def call_ollama(prompt, system, temperature, max_tokens, history=None, schema=None, tools=None):
     from ollama import Client
 
     messages = []

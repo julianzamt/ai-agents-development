@@ -14,7 +14,15 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError
 
 from . import providers
-from .config import PROJECT_ROOT, TRANSPORT_MAX_ATTEMPTS
+from .config import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_PROVIDER,
+    DEFAULT_SYSTEM,
+    DEFAULT_TEMPERATURE,
+    PROJECT_ROOT,
+    PROVIDERS_ENV_VAR_NAMES,
+    TRANSPORT_MAX_ATTEMPTS,
+)
 from .errors import classify_error
 from .responses import GenerationResult, conversation_turn, format_response, response_details
 
@@ -24,20 +32,17 @@ logger = logging.getLogger(__name__)
 class LLMClient:
     def __init__(self):
         load_dotenv(PROJECT_ROOT / ".env")
-        self.provider = os.environ.get("LLM_PROVIDER", "bedrock")
-        credentials = {
-            "bedrock": "AWS_BEARER_TOKEN_BEDROCK",
-            "anthropic": "ANTHROPIC_API_KEY",
-            "openai": "OPENAI_API_KEY",
-            "google": "GOOGLE_API_KEY",
-            "ollama": None,
-        }
-        if self.provider not in credentials:
+        self.provider = os.environ.get("LLM_PROVIDER", DEFAULT_PROVIDER)
+        self._check_credentials()
+
+    def _check_credentials(self):
+        """Fail fast if the selected provider is unsupported or lacks credentials."""
+        if self.provider not in PROVIDERS_ENV_VAR_NAMES:
             raise ValueError(
                 f"Unsupported LLM_PROVIDER '{self.provider}'. "
-                f"Choose one of: {', '.join(credentials)}."
+                f"Choose one of: {', '.join(PROVIDERS_ENV_VAR_NAMES)}."
             )
-        credential = credentials[self.provider]
+        credential = PROVIDERS_ENV_VAR_NAMES[self.provider]
         if credential and not os.environ.get(credential):
             raise ValueError(
                 f"Missing {credential} for provider '{self.provider}'. "
@@ -46,6 +51,7 @@ class LLMClient:
 
     @staticmethod
     def _validate_request(prompt, system, temperature, max_tokens, history=None, tools=None):
+        # Checks for non empty prompt, or accept it if it is a tool call
         if not (prompt is None and tools and history) and (not isinstance(prompt, str) or not prompt.strip()):
             raise ValueError("prompt must be a non-empty string.")
         if system is not None and not isinstance(system, str):
@@ -53,8 +59,7 @@ class LLMClient:
         if type(max_tokens) is not int or max_tokens <= 0:
             raise ValueError("max_tokens must be a positive integer.")
         if (
-            isinstance(temperature, bool)
-            or not isinstance(temperature, (int, float))
+            type(temperature) not in (int, float)
             or not math.isfinite(temperature)
             or temperature < 0
         ):
@@ -62,10 +67,10 @@ class LLMClient:
 
     def _request(
         self,
-        prompt: str,
-        system: str = None,
-        temperature: float = 0.7,
-        max_tokens: int = 500,
+        prompt: str | None,
+        system: str | None,
+        temperature: float,
+        max_tokens: int,
         history=None,
         schema=None,
         tools=None,
@@ -122,7 +127,9 @@ class LLMClient:
             return response
 
     def generate(
-        self, prompt, system=None, temperature=0.7, max_tokens=500, history=None,
+        self, prompt, system: str | None = DEFAULT_SYSTEM,
+        temperature: float = DEFAULT_TEMPERATURE, max_tokens: int = DEFAULT_MAX_TOKENS,
+        history=None,
         *, tool_groups=None, schema_model=None, max_attempts=3, native=True, max_rounds=3,
     ) -> GenerationResult:
         """Generate one independent result, optionally using tools and a schema."""
@@ -169,7 +176,7 @@ class LLMClient:
         )
 
     def _generate_structured(
-        self, prompt, schema_model, system=None, temperature=0.7, max_tokens=500,
+        self, prompt, schema_model, system, temperature, max_tokens,
         history=None, *, max_attempts=3, native=True,
     ):
         """Validate JSON and retry with feedback; optionally use prompt-only output."""
@@ -210,7 +217,8 @@ class LLMClient:
             return result, response
 
     def generate_batch(
-        self, prompts: list[str], system=None, temperature=0.7, max_tokens=500,
+        self, prompts: list[str], system: str | None = DEFAULT_SYSTEM,
+        temperature: float = DEFAULT_TEMPERATURE, max_tokens: int = DEFAULT_MAX_TOKENS,
         **options,
     ) -> list[GenerationResult]:
         """Run the same generation flow independently with three workers, in input order."""
