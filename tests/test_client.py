@@ -332,9 +332,55 @@ class CLITests(unittest.TestCase):
         self.assertEqual(args.temperature, 0.3)
         self.assertEqual(args.max_tokens, 100)
 
+    def test_tool_rounds_save_override_and_validate_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "config.json"
+            history = Path(directory) / "history.json"
+            with patch.object(cli, "CONFIG_PATH", config), patch("builtins.print"), patch.object(cli, "LLMClient") as constructor:
+                flags = ["--history", str(history)]
+                cli.main(flags + ["--max-tools-rounds", "5"])
+                constructor.assert_not_called()
+                self.assertEqual(state.load_config(config)["max_tools_rounds"], 5)
+                constructor.return_value.provider = "google"
+                constructor.return_value.generate.return_value = SimpleNamespace(history=[], report="ok")
+                cli.main(flags + ["Hello", "--max-tools-rounds", "2"])
+                self.assertEqual(constructor.return_value.generate.call_args.kwargs["max_tools_rounds"], 2)
+                self.assertEqual(state.load_config(config)["max_tools_rounds"], 5)
+            for invalid in (0, -1, True, 1.5, "3"):
+                state.save_json(config, {"max_tools_rounds": invalid})
+                with self.assertRaisesRegex(ValueError, "Invalid max_tools_rounds"):
+                    state.load_config(config)
+
+    def test_structured_attempts_save_override_and_validate_config(self):
+        key = "max_attempts_for_structured_response"
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "config.json"
+            history = Path(directory) / "history.json"
+            with patch.object(cli, "CONFIG_PATH", config), patch("builtins.print"), patch.object(cli, "LLMClient") as constructor:
+                flags = ["--history", str(history)]
+                cli.main(flags + ["--structured-attempts", "5"])
+                constructor.assert_not_called()
+                self.assertEqual(state.load_config(config)[key], 5)
+                constructor.return_value.provider = "google"
+                constructor.return_value.generate.return_value = SimpleNamespace(history=[], report="ok")
+                cli.main(flags + ["Hello", "--structured", "support"])
+                self.assertEqual(constructor.return_value.generate.call_args.kwargs[key], 5)
+                cli.main(flags + ["Hello", "--structured", "support", "--max-attempts-for-structured-response", "2"])
+                self.assertEqual(constructor.return_value.generate.call_args.kwargs[key], 2)
+                self.assertEqual(state.load_config(config)[key], 5)
+            for invalid in (0, -1, True, 1.5, "3"):
+                state.save_json(config, {key: invalid})
+                with self.assertRaisesRegex(ValueError, "Invalid " + key):
+                    state.load_config(config)
+        for invalid in ("0", "-1", "1.5"):
+            with patch("sys.stderr"), self.assertRaises(SystemExit):
+                cli.parse_cli_args(["--structured-attempts", invalid])
+
     def test_invalid_arguments_fail_before_creating_client(self):
         for argv in ([], ["Hello", "--temp", "nan"], ["Hello", "--temp", "-1"],
-                     ["Hello", "--max-tokens", "0"], ["Hello", "--max-tokens", "1.5"]):
+                     ["Hello", "--max-tokens", "0"], ["Hello", "--max-tokens", "1.5"],
+                     ["Hello", "--max-tools-rounds", "0"],
+                     ["Hello", "--max-tools-rounds", "1.5"]):
             with self.subTest(argv=argv), patch("sys.stderr"), patch.object(cli, "LLMClient") as constructor:
                 with self.assertRaises(SystemExit):
                     cli.main(argv)
@@ -355,7 +401,7 @@ class CLITests(unittest.TestCase):
             cli.main(flags + ["--system", "Be brief", "--temp", "0.3", "--max_tokens", "100"])
             constructor.assert_not_called()
             self.assertEqual(state.load_config(config_path),
-                             dict(system="Be brief", temperature=0.3, max_tokens=100))
+                             dict(system="Be brief", temperature=0.3, max_tokens=100, max_tools_rounds=3, max_attempts_for_structured_response=3))
             llm = constructor.return_value
             llm.provider = "google"
             def generate(prompt, **kwargs):
@@ -366,14 +412,14 @@ class CLITests(unittest.TestCase):
             llm.generate.side_effect = generate
             cli.main(flags + ["My name is Julian"])
             llm.generate.assert_called_with("My name is Julian", system="Be brief", temperature=0.3,
-                                            max_tokens=100, history=[])
+                                            max_tokens=100, max_tools_rounds=3, max_attempts_for_structured_response=3, history=[])
             history = state.load_history(path)["google"]
             self.assertEqual(history[1]["parts"][0]["thought_signature"], b"\xff\x00")
             # The SDK accepts the restored native content, including bytes.
             types.Content.model_validate(history[1])
             cli.main(flags + ["What is my name?", "Override", "0.5", "50"])
             llm.generate.assert_called_with("What is my name?", system="Override", temperature=0.5,
-                                            max_tokens=50, history=history)
+                                            max_tokens=50, max_tools_rounds=3, max_attempts_for_structured_response=3, history=history)
             self.assertEqual(state.load_config(config_path)["system"], "Be brief")
             self.assertEqual(len(state.load_history(path)["google"]), 4)
             config = state.load_config(config_path)
@@ -494,7 +540,7 @@ class CLITests(unittest.TestCase):
             cli.main(["--history", str(path), "--batch", "First", "Second"])
             constructor.return_value.generate_batch.assert_called_once_with(
                 ["First", "Second"], system="Brief", temperature=0.3,
-                max_tokens=100)
+                max_tokens=100, max_tools_rounds=3, max_attempts_for_structured_response=3)
             self.assertEqual(path.read_text(), before)
             self.assertEqual(output.call_count, 2)
 

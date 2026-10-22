@@ -20,11 +20,15 @@ TRANSPORT_MAX_ATTEMPTS = 3
 DEFAULT_SYSTEM = None
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_MAX_TOKENS = 500
+DEFAULT_MAX_TOOLS_ROUNDS = 3
+DEFAULT_MAX_ATTEMPTS_FOR_STRUCTURED_RESPONSE = 3
 
 DEFAULT_PARAMS = {
     "system": DEFAULT_SYSTEM,
     "temperature": DEFAULT_TEMPERATURE,
     "max_tokens": DEFAULT_MAX_TOKENS,
+    "max_tools_rounds": DEFAULT_MAX_TOOLS_ROUNDS,
+    "max_attempts_for_structured_response": DEFAULT_MAX_ATTEMPTS_FOR_STRUCTURED_RESPONSE,
 } # Used if global config is not set or reset
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]

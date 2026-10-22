@@ -55,7 +55,7 @@ class StructuredTests(unittest.TestCase):
         invalid = SimpleNamespace(message=Message(role="assistant", content="{}"))
         with patch.object(llm, "_request", return_value=invalid) as generate:
             with self.assertRaisesRegex(ValueError, "after 2 attempts") as raised:
-                llm.generate("Classify", schema_model=SupportQuery, max_attempts=2)
+                llm.generate("Classify", schema_model=SupportQuery, max_attempts_for_structured_response=2)
             self.assertEqual(generate.call_count, 2)
             self.assertIsNotNone(raised.exception.__cause__)
 
@@ -79,7 +79,7 @@ class StructuredTests(unittest.TestCase):
         with patch.object(llm, "_request") as generate:
             for count in (0, -1, True, 1.5):
                 with self.subTest(count=count), self.assertRaises(ValueError):
-                    llm.generate("Classify", schema_model=SupportQuery, max_attempts=count)
+                    llm.generate("Classify", schema_model=SupportQuery, max_attempts_for_structured_response=count)
             generate.assert_not_called()
 
     def test_structured_batch_retries_independently_and_preserves_order(self):
@@ -133,7 +133,7 @@ class StructuredTests(unittest.TestCase):
         response = SimpleNamespace(message=Message(role="assistant", content="{}"))
         with patch.object(llm, "_request", return_value=response) as generate:
             with self.assertRaisesRegex(ValueError, "after 2 attempts"):
-                llm.generate_batch(["First"], schema_model=SupportQuery, max_attempts=2)
+                llm.generate_batch(["First"], schema_model=SupportQuery, max_attempts_for_structured_response=2)
             self.assertEqual(generate.call_count, 2)
 
     def test_cli_selects_registered_schema_in_every_execution_path(self):

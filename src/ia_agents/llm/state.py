@@ -39,6 +39,11 @@ def load_config(path):
             raise ValueError("Invalid temperature")
         if type(params["max_tokens"]) is not int or params["max_tokens"] <= 0:
             raise ValueError("Invalid max_tokens")
+        if type(params["max_tools_rounds"]) is not int or params["max_tools_rounds"] <= 0:
+            raise ValueError("Invalid max_tools_rounds")
+        attempts = params["max_attempts_for_structured_response"]
+        if type(attempts) is not int or attempts <= 0:
+            raise ValueError("Invalid max_attempts_for_structured_response")
         return params
     except (ValueError, TypeError) as error:
         raise ValueError(f"Invalid configuration file {path}: {error}. Use --reset-config to restore defaults.") from error

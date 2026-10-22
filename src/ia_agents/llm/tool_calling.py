@@ -63,25 +63,27 @@ def result_messages(provider, results):
             for call_id, name, result in results]
 
 
-def run_tools(llm, prompt, system, temperature, max_tokens, history, max_rounds, tool_groups):
-    if type(max_rounds) is not int or max_rounds <= 0:
-        raise ValueError("max_rounds must be a positive integer.")
+def run_tools(llm, prompt, system, temperature, max_tokens, history, max_tools_rounds, tool_groups):
+    if type(max_tools_rounds) is not int or max_tools_rounds <= 0:
+        raise ValueError("max_tools_rounds must be a positive integer.")
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("prompt must be a non-empty string.")
+    
     tools = select_tools(tool_groups)
     messages = copy.deepcopy(history or [])
     messages.append(user_message(llm.provider, prompt))
+    
     registry = {tool.name: tool for tool in tools}
     # Allow a final model response after the last permitted execution round.
-    for round_index in range(max_rounds + 1):
+    for round_index in range(max_tools_rounds + 1):
         response = llm._request(None, system, temperature, max_tokens,
                                 history=messages, tools=tools)
         assistant, calls = tool_requests(llm.provider, response)
         messages.append(assistant)
         if not calls:
             return response, messages
-        if round_index == max_rounds:
-            raise RuntimeError(f"Tool calling exceeded {max_rounds} execution rounds.")
+        if round_index == max_tools_rounds:
+            raise RuntimeError(f"Tool calling exceeded {max_tools_rounds} execution rounds.")
         # Validate the whole round before running any registered function.
         validated = []
         for call_id, name, arguments in calls:

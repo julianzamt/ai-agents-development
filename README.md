@@ -170,10 +170,15 @@ client --structured support --structured-attempts 3 --prompt "My account is lock
 client --structured support --structured-mode prompt --temp 0 --prompt "My account is locked"
 ```
 
+`--structured-attempts` (alias `--max-attempts-for-structured-response`) defaults
+to 3. Without a prompt or batch, it saves a preference; with a query, it overrides
+the saved value for that query. Existing configuration files use the default
+when `max_attempts_for_structured_response` is absent.
+
 `--structured-mode prompt` requests JSON through instructions instead of native
 provider schema enforcement, supporting the universal pattern from the notebook.
 Native mode remains the default; unsupported native requests are not silently
-retried in prompt mode. Python callers can pass `max_attempts=3` and `native=False`
+retried in prompt mode. Python callers can pass `max_attempts_for_structured_response=3` and `native=False`
 to `generate(..., schema_model=SupportQuery)`.
 
 Validation attempts are separate from transport retries: each validation attempt

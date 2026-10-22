@@ -61,7 +61,7 @@ class ToolTests(unittest.TestCase):
     def test_invalid_schema_options_never_execute_tools(self):
         llm = LLMClient.__new__(LLMClient)
         with patch.object(llm, "_request") as request:
-            for options in ({"schema_model": dict}, {"schema_model": SupportQuery, "max_attempts": 0}):
+            for options in ({"schema_model": dict}, {"schema_model": SupportQuery, "max_attempts_for_structured_response": 0}):
                 with self.subTest(options=options), self.assertRaises(ValueError):
                     llm.generate("Check T-001", tool_groups=["tickets"], **options)
             request.assert_not_called()
@@ -97,7 +97,7 @@ class ToolTests(unittest.TestCase):
                     llm.generate("Find ticket", tool_groups=["tickets"])
         with patch.object(llm, "_request", return_value=google_response("get_ticket_status", {"ticket_id": "T-001"})) as generate:
             with self.assertRaisesRegex(RuntimeError, "exceeded"):
-                llm.generate("Find ticket", tool_groups=["tickets"], max_rounds=1)
+                llm.generate("Find ticket", tool_groups=["tickets"], max_tools_rounds=1)
             self.assertEqual(generate.call_count, 2)
 
     def test_multiple_groups_reach_model_and_execute(self):
@@ -207,7 +207,7 @@ class ToolTests(unittest.TestCase):
         ]) as generate:
             with self.assertRaisesRegex(ValueError, "after 2 attempts"):
                 llm.generate_batch(["T-001"], tool_groups=["tickets"],
-                                   schema_model=SupportQuery, max_attempts=2)
+                                   schema_model=SupportQuery, max_attempts_for_structured_response=2)
             self.assertEqual(generate.call_count, 4)
             self.assertEqual(sum(bool(request.kwargs.get("tools")) for request in generate.call_args_list), 2)
 

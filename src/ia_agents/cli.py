@@ -22,6 +22,9 @@ def parse_cli_args(argv=None):
     parser.add_argument("--temp", "--temperature", dest="temperature", type=float)
     parser.add_argument("--max-tokens", "--max_tokens", dest="max_tokens", type=int)
 
+    parser.add_argument("--max-tools-rounds", "--max_tools_rounds", type=int,
+                        help="Maximum tool execution rounds (default: 3; saved configuration may override)")
+
     # Batched queries
     parser.add_argument("--batch", nargs="+", metavar="PROMPT",
                             help="Run 1 to 3 independent queries using the current configuration")
@@ -34,10 +37,11 @@ def parse_cli_args(argv=None):
     parser.add_argument("--tools", nargs="+", choices=list(TOOL_GROUPS),
                         help="Enable the selected tool groups")
 
-    # Structured response opts. --structured-attempts and --structured-mode are silently ignored if --structured is not set.
+    # Structured response options; attempts can also be saved without a query.
     parser.add_argument("--structured", choices=list(SCHEMAS),
                         help="Return structured output validated against the selected schema")
-    parser.add_argument("--structured-attempts", type=int, default=3,
+    parser.add_argument("--structured-attempts", "--max-attempts-for-structured-response",
+                        dest="max_attempts_for_structured_response", type=int,
                         help="Maximum structured validation attempts (default: 3)")
     parser.add_argument("--structured-mode", choices=["native", "prompt"], default="native",
                         help="Native schema enforcement or universal prompt-only JSON")
@@ -56,6 +60,9 @@ def parse_cli_args(argv=None):
               else getattr(args, f"{name}_pos")
               for name in ("prompt", "system", "temperature", "max_tokens")}
 
+    values["max_tools_rounds"] = args.max_tools_rounds
+    values["max_attempts_for_structured_response"] = args.max_attempts_for_structured_response
+
     # Sanity checks
     if CONFIG_PATH.resolve() == args.history_path.resolve():
         parser.error("Configuration and history must use different files.")
@@ -71,11 +78,14 @@ def parse_cli_args(argv=None):
 
     if args.structured and not args.batch and values["prompt"] is None:
         parser.error("--structured requires a prompt or --batch.")
-    if args.structured_attempts <= 0:
+    if args.max_attempts_for_structured_response is not None and args.max_attempts_for_structured_response <= 0:
         parser.error("--structured-attempts must be positive.")
 
     if args.tools and not args.batch and values["prompt"] is None:
         parser.error("--tools requires a prompt or --batch.")
+
+    if values["max_tools_rounds"] is not None and values["max_tools_rounds"] <= 0:
+        parser.error("max_tools_rounds must be a positive integer.")
 
     temp = values["temperature"]
     if temp is not None and (not math.isfinite(temp) or temp < 0):
@@ -89,7 +99,6 @@ def parse_cli_args(argv=None):
 
     return argparse.Namespace(**values, history_path=args.history_path, reset_chat=args.reset_chat,
                               reset_all=args.reset_all, reset_config=args.reset_config, batch=args.batch, structured=args.structured,
-                              structured_attempts=args.structured_attempts,
                               structured_mode=args.structured_mode, tools=args.tools)
 
 def prepare_execution(args):
@@ -129,7 +138,6 @@ def build_generation_options(args):
     options = {}
     if args.structured:
         options.update(schema_model=SCHEMAS[args.structured],
-                       max_attempts=args.structured_attempts,
                        native=args.structured_mode == "native")
     if args.tools:
         options["tool_groups"] = args.tools
