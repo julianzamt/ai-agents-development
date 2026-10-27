@@ -1,0 +1,121 @@
+"""Class 4 laboratory: offline corpus ingestion, storage, and traceability."""
+
+import hashlib
+import json
+import os
+import tempfile
+import unittest
+from dataclasses import asdict
+from datetime import datetime
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from ia_agents.llm.embed import build_chunks, clean_text, embed_google
+
+
+CORPUS_PATH = Path(__file__).with_name("test_corpus.txt")
+
+
+class IngestionLabTests(unittest.TestCase):
+    def test_character_ingestion(self):
+        self._check_corpus_ingestion("characters")
+
+    def test_paragraph_ingestion(self):
+        self._check_corpus_ingestion("paragraphs")
+
+    def test_unknown_strategy(self):
+        with self.assertRaisesRegex(ValueError, "Unknown chunking strategy"):
+            build_chunks("text", "doc", "source", strategy="unknown")
+
+    def _check_corpus_ingestion(self, strategy):
+        raw_text = CORPUS_PATH.read_text(encoding="utf-8")
+        self.assertTrue(9_000 <= len(raw_text) <= 11_000)
+        text = clean_text(raw_text)
+        document_id = "charly-garcia-career"
+
+        # 1,000 characters retain several sentences of biographical context.
+        # A 150-character overlap preserves context across fixed boundaries,
+        # while keeping every chunk below the lab's 1,500-character target.
+        chunks = build_chunks(
+            text, document_id, source=CORPUS_PATH.name,
+            chunk_size=1_000, overlap=150, strategy=strategy, max_chars=1_000,
+        )
+        self.assertGreater(len(chunks), 1)
+        # Enable readable output with PRINT_CHUNKS=1 when running unittest.
+        if os.environ.get("PRINT_CHUNKS") == "1":
+            for chunk in chunks:
+                print(f"\n{'=' * 72}")
+                print(f"{strategy} | Chunk {chunk.position} | {len(chunk.text)} characters")
+                print(f"ID: {chunk.chunk_id}")
+                print(f"Document: {chunk.document_id} | Source: {chunk.source}")
+                print(f"Ingested at: {chunk.ingested_at.isoformat()}")
+                print(f"{'-' * 72}\n{chunk.text}")
+
+        # Only the external provider is mocked: cleaning, chunk construction,
+        # embed_google's batch request/response handling, and JSON I/O are real.
+        # These distinct vectors are fixtures, not semantic embeddings.
+        expected_vectors = [[float(i), 0.5, -0.5] for i in range(len(chunks))]
+        response = SimpleNamespace(embeddings=[
+            SimpleNamespace(values=vector) for vector in expected_vectors
+        ])
+        with patch.dict("os.environ", {
+            "GOOGLE_API_KEY": "offline-test-key",
+            "GOOGLE_EMBEDDING_MODEL_ID": "offline-test-model",
+        }), patch("ia_agents.llm.embed.genai.Client") as client_class:
+            embed_content = client_class.return_value.models.embed_content
+            embed_content.return_value = response
+            vectors = embed_google([chunk.text for chunk in chunks])
+            embed_content.assert_called_once_with(
+                model="offline-test-model", contents=[c.text for c in chunks],
+            )
+
+        self.assertEqual(len(vectors), len(chunks))
+        records = []
+        for chunk, vector in zip(chunks, vectors):
+            record = asdict(chunk)
+            record["ingested_at"] = chunk.ingested_at.isoformat()
+            record["vector"] = vector
+            records.append(record)
+
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "ingested_chunks.json"
+            output_path.write_text(
+                json.dumps(records, ensure_ascii=False), encoding="utf-8",
+            )
+            stored = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(stored, records)
+        by_id = {record["chunk_id"]: record for record in stored}
+        self.assertEqual(len(by_id), len(chunks))
+        for position, record in enumerate(stored):
+            with self.subTest(position=position):
+                self.assertTrue(0 < len(record["text"]) < 1_500)
+                if strategy == "characters":
+                    self.assertEqual(record["text"], text[position * 850:position * 850 + 1_000])
+                else:
+                    self.assertLessEqual(len(record["text"]), 1_000)
+                self.assertEqual(record["vector"], expected_vectors[position])
+                self.assertEqual(record["source"], CORPUS_PATH.name)
+                timestamp = datetime.fromisoformat(record["ingested_at"])
+                self.assertIsNotNone(timestamp.utcoffset())
+                content_hash = hashlib.sha256(record["text"].encode()).hexdigest()[:8]
+                expected_id = f"{document_id}-{position:03d}-{content_hash}"
+                self.assertEqual(record["chunk_id"], expected_id)
+                recovered = by_id[expected_id]
+                self.assertEqual(recovered["document_id"], document_id)
+                self.assertEqual(recovered["position"], position)
+
+        # Recover the complete cleaned document, including its final fragment.
+        if strategy == "characters":
+            reconstructed = stored[0]["text"] + "".join(
+                record["text"][150:] for record in stored[1:]
+            )
+        else:
+            reconstructed = "\n\n".join(record["text"] for record in stored)
+        self.assertEqual(reconstructed, text)
+
+
+
+if __name__ == "__main__":
+    unittest.main()
