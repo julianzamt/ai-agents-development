@@ -11,6 +11,7 @@ dynamic = ["dependencies"]
 
 [project.scripts]
 client = "ia_agents.cli:main"
+ingest = "ia_agents.ingest_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

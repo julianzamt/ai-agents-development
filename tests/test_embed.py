@@ -11,6 +11,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from google.genai import types, _transformers
+
 from ia_agents.llm.embed import build_chunks, clean_text, embed_google
 
 
@@ -67,8 +69,15 @@ class IngestionLabTests(unittest.TestCase):
             embed_content.return_value = response
             vectors = embed_google([chunk.text for chunk in chunks])
             embed_content.assert_called_once_with(
-                model="offline-test-model", contents=[c.text for c in chunks],
+                model="offline-test-model",
+                contents=[types.Content(parts=[types.Part(text=c.text)]) for c in chunks],
             )
+            # Exercise the SDK's Embedding 2 normalization: plain strings
+            # collapse into one Content, but these boundaries must survive.
+            normalized = _transformers.t_contents(embed_content.call_args.kwargs["contents"])
+            self.assertEqual(len(normalized), len(chunks))
+            self.assertEqual([content.parts[0].text for content in normalized],
+                             [chunk.text for chunk in chunks])
 
         self.assertEqual(len(vectors), len(chunks))
         records = []

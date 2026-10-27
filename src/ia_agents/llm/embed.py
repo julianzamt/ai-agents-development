@@ -12,10 +12,14 @@ from google.genai import types
 load_dotenv()
 
 def embed_google(texts: list[str]) -> list[list[float]]:
+    if not texts:
+        return []
     client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
     resp = client.models.embed_content(
-        model=os.environ.get("GOOGLE_EMBEDDING_MODEL_ID", "text-embedding-004"),
-        contents=texts,
+        model=os.environ.get("GOOGLE_EMBEDDING_MODEL_ID", "gemini-embedding-2"),
+        # Explicit Content boundaries prevent Embedding 2 from aggregating
+        # all strings into a single embedding.
+        contents=[types.Content(parts=[types.Part(text=text)]) for text in texts],
     )
     return [e.values for e in resp.embeddings]
 

@@ -85,6 +85,24 @@ output with `schema_model=SupportQuery`; both can be used together.
 order. Each item uses the single-query generation flow. The CLI saves history for
 individual requests only.
 
+## Document ingestion
+
+Configure `GOOGLE_API_KEY` and optionally `GOOGLE_EMBEDDING_MODEL_ID` in `.env`.
+Refresh the editable installation to register the separate `ingest` command:
+
+```bash
+python3 -m pip install -e .
+ingest tests/test_corpus.txt --strategy paragraphs --max-chars 1000 --output data/charly_embeddings.json
+```
+
+Alternatively, run `python3 -m ia_agents.ingest_cli` with the same arguments.
+Character chunking uses `--strategy characters --chunk-size 1000 --overlap 150`.
+Add `--print-chunks` to inspect the chunks. `--document-id` and `--source` override
+the metadata defaults (input stem and input path). Paragraphs larger than
+`--max-chars` remain intact. The command makes real Google API requests and writes
+a JSON list with text, chunk ID, document ID, position, source, UTC ingestion time,
+and vector. An existing output file is replaced after embedding succeeds.
+
 ## Tests
 
 ```bash
