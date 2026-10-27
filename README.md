@@ -110,6 +110,18 @@ default persistence directory is `./chroma_db` and the default collection is
 Keep the provider and model consistent between ingestion and search; changing
 embedding spaces requires re-embedding the collection.
 
+Inspect retrieval by passing one or more queries to `retrieve`:
+
+```bash
+retrieve "Who were the members of Serú Girán?" "Which album began the solo period?" \
+  --persist-directory data/chroma_db --collection charly -k 3
+```
+
+The command prints each match's Chroma distance, chunk ID, section metadata, and
+text. Use `--section section_04` or `--document-id charly` to filter by metadata,
+and `--max-distance` to hide matches beyond a distance threshold. You can also
+run it as `python3 -m ia_agents.retrieve_cli`.
+
 ## Tests
 
 ```bash
