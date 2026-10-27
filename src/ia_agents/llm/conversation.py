@@ -47,7 +47,7 @@ def result_messages(provider, results):
 
 
 class Conversation:
-    """Keep a generation's messages separate from the caller's saved history."""
+    """Simple chat history tracking. No trimming, summarizing or context limiting yet"""
 
     def __init__(self, provider, history=None):
         self.provider = provider
