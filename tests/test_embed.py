@@ -2,7 +2,6 @@
 
 import hashlib
 import os
-import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -42,6 +41,16 @@ class IngestionLabTests(unittest.TestCase):
             chunk_size=1_000, overlap=150, strategy=strategy, max_chars=1_000,
         )
         self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(chunk.section_id and chunk.section_title for chunk in chunks))
+        section_ids = {chunk.section_id for chunk in chunks}
+        self.assertEqual(len(section_ids), 11)  # introduction plus ten numbered sections
+        self.assertTrue(any(chunk.section_id == "section_04" and
+                            chunk.section_title == "Serú Girán: identidad colectiva"
+                            for chunk in chunks))
+        if strategy == "characters":
+            for previous, current in zip(chunks, chunks[1:]):
+                if current.section_id == previous.section_id:
+                    self.assertEqual(previous.text[850:], current.text[:150])
         # Enable readable output with PRINT_CHUNKS=1 when running unittest.
         if os.environ.get("PRINT_CHUNKS") == "1":
             for chunk in chunks:
@@ -78,12 +87,11 @@ class IngestionLabTests(unittest.TestCase):
                              [chunk.text for chunk in chunks])
 
         self.assertEqual(len(vectors), len(chunks))
-        self.assertEqual(len(vectors), len(chunks))
         for position, (chunk, vector) in enumerate(zip(chunks, vectors)):
             with self.subTest(position=position):
                 self.assertTrue(0 < len(chunk.text) < 1_500)
                 if strategy == "characters":
-                    self.assertEqual(chunk.text, text[position * 850:position * 850 + 1_000])
+                    self.assertEqual(chunk.position, position)
                 else:
                     self.assertLessEqual(len(chunk.text), 1_000)
                 self.assertEqual(vector, expected_vectors[position])
@@ -98,12 +106,39 @@ class IngestionLabTests(unittest.TestCase):
 
         # Recover the complete cleaned document, including its final fragment.
         if strategy == "characters":
-            reconstructed = chunks[0].text + "".join(
-                chunk.text[150:] for chunk in chunks[1:]
-            )
+            reconstructed_sections = []
+            for section_id in dict.fromkeys(chunk.section_id for chunk in chunks):
+                section_chunks = [chunk for chunk in chunks if chunk.section_id == section_id]
+                reconstructed_sections.append(section_chunks[0].text + "".join(
+                    chunk.text[150:] for chunk in section_chunks[1:]
+                ))
+            reconstructed = "\n\n".join(reconstructed_sections)
         else:
-            reconstructed = "\n\n".join(chunk.text for chunk in chunks)
+            reconstructed_sections = []
+            for section_id in dict.fromkeys(chunk.section_id for chunk in chunks):
+                reconstructed_sections.append("\n\n".join(
+                    chunk.text for chunk in chunks if chunk.section_id == section_id
+                ))
+            reconstructed = "\n\n".join(reconstructed_sections)
         self.assertEqual(reconstructed, text)
+
+    def test_chunks_do_not_cross_section_boundaries(self):
+        text = "Intro text.\n\n1. First section\nAlpha beta gamma.\n\n2. Second section\nDelta epsilon zeta."
+        chunks = build_chunks(
+            text, "doc", "fixture", chunk_size=100, overlap=20,
+            strategy="characters",
+        )
+        self.assertEqual([chunk.section_id for chunk in chunks], ["introduction", "section_01", "section_02"])
+        self.assertEqual([chunk.section_title for chunk in chunks], [
+            "Introduction", "First section", "Second section",
+        ])
+        self.assertTrue(all("Delta epsilon zeta" not in chunk.text for chunk in chunks[:2]))
+
+    def test_unheaded_text_gets_document_section_metadata(self):
+        chunks = build_chunks("Plain text without headings.", "doc", "fixture")
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0].section_id, "section_00")
+        self.assertEqual(chunks[0].section_title, "Document")
 
 
 

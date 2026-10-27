@@ -41,6 +41,8 @@ class IngestCliTests(unittest.TestCase):
                     self.assertEqual(metadata["source"], "fixture")
                     self.assertEqual(metadata["position"], i)
                     self.assertIn("ingested_at", metadata)
+                    self.assertEqual(metadata["section_id"], "section_00")
+                    self.assertEqual(metadata["section_title"], "Document")
                     self.assertEqual(list(vector), [float(i), 0.5])
                     self.assertTrue(text)
                 if strategy == "paragraphs":

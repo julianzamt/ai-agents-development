@@ -67,6 +67,8 @@ class Chunk:
     document_id: str
     position: int # chunk order within the document
     source: str
+    section_id: str | None = None
+    section_title: str | None = None
     ingested_at: datetime = field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -86,18 +88,46 @@ def build_chunks(
     strategy: Literal["characters", "paragraphs"] = "characters",
     max_chars: int = 500,
 ) -> list[Chunk]:
-    """Build chunks using the selected strategy.
+    """Build section-aware chunks using the selected strategy.
 
     chunk_size and overlap apply only to characters. max_chars applies only to
-    paragraphs, which remain intact even when longer than max_chars.
+    paragraphs, which remain intact even when longer than max_chars. Numbered
+    headings start new sections, and chunks never cross section boundaries.
     """
-    if strategy == "characters":
-        texts = chunk_by_characters(text, chunk_size, overlap)
-    elif strategy == "paragraphs":
-        texts = chunk_by_paragraphs(text, max_chars=max_chars)
-    else:
+    if strategy not in ("characters", "paragraphs"):
         raise ValueError(f"Unknown chunking strategy: {strategy!r}")
-    return [
-        Chunk(text=t, document_id=document_id, position=i, source=source)
-        for i, t in enumerate(texts)
-    ]
+
+    heading_pattern = re.compile(r"(?m)^(\d+)\.\s+(.+?)\s*$")
+    headings = list(heading_pattern.finditer(text))
+    sections: list[tuple[str, str, str]] = []
+    if headings:
+        if text[:headings[0].start()].strip():
+            sections.append(("introduction", "Introduction", text[:headings[0].start()].strip()))
+        for index, heading in enumerate(headings):
+            end = headings[index + 1].start() if index + 1 < len(headings) else len(text)
+            section_id = f"section_{int(heading.group(1)):02d}"
+            section_title = heading.group(2).strip()
+            section_text = text[heading.start():end].strip()
+            sections.append((section_id, section_title, section_text))
+    else:
+        sections.append(("section_00", "Document", text))
+
+    chunks: list[Chunk] = []
+    for section_id, section_title, section_text in sections:
+        if strategy == "characters":
+            texts = chunk_by_characters(section_text, chunk_size, overlap)
+        else:
+            texts = chunk_by_paragraphs(section_text, max_chars=max_chars)
+        position_offset = len(chunks)
+        chunks.extend([
+            Chunk(
+                text=chunk_text,
+                document_id=document_id,
+                position=position_offset + offset,
+                source=source,
+                section_id=section_id,
+                section_title=section_title,
+            )
+            for offset, chunk_text in enumerate(texts)
+        ])
+    return chunks

@@ -44,6 +44,7 @@ def main(argv=None):
     if args.print_chunks:
         for chunk in chunks:
             print(f"\n{'=' * 72}\n{chunk.chunk_id} | {len(chunk.text)} characters")
+            print(f"Section: {chunk.section_id} | {chunk.section_title}")
             print(f"Source: {chunk.source} | Ingested: {chunk.ingested_at.isoformat()}")
             print(f"{'-' * 72}\n{chunk.text}")
 
@@ -63,6 +64,8 @@ def main(argv=None):
                 "position": chunk.position,
                 "source": chunk.source,
                 "ingested_at": chunk.ingested_at.isoformat(),
+                "section_id": chunk.section_id,
+                "section_title": chunk.section_title,
             }
             for chunk in chunks
         ],
