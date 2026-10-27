@@ -87,7 +87,11 @@ individual requests only.
 
 ## Document ingestion
 
-Configure `GOOGLE_API_KEY` and optionally `GOOGLE_EMBEDDING_MODEL_ID` in `.env`.
+Embedding provider defaults to Google. Set `EMBEDDING_PROVIDER` to `google`,
+`openai`, or `ollama`. Configure the matching credentials and optionally set
+`GOOGLE_EMBEDDING_MODEL_ID`, `OPENAI_EMBEDDING_MODEL_ID`, or
+`OLLAMA_EMBEDDING_MODEL_ID`. Google uses separate document and query embedding
+formats recommended for retrieval by the selected Gemini embedding model.
 Refresh the editable installation to register the separate `ingest` command:
 
 ```bash
@@ -99,10 +103,12 @@ Alternatively, run `python3 -m ia_agents.ingest_cli` with the same arguments.
 Character chunking uses `--strategy characters --chunk-size 1000 --overlap 150`.
 Add `--print-chunks` to inspect the chunks. `--document-id` and `--source` override
 the metadata defaults (input stem and input path). Paragraphs larger than
-`--max-chars` remain intact. The command makes real Google API requests and stores
-chunk text, IDs, metadata, and embeddings in the local ChromaDB collection. The
+`--max-chars` remain intact. The command calls the configured embedding provider
+and stores chunk text, IDs, metadata, and embeddings in the local ChromaDB collection. The
 default persistence directory is `./chroma_db` and the default collection is
 `documents`; repeated ingestion upserts chunks by their deterministic IDs.
+Keep the provider and model consistent between ingestion and search; changing
+embedding spaces requires re-embedding the collection.
 
 ## Tests
 

@@ -21,8 +21,10 @@ class IngestCliTests(unittest.TestCase):
                 source.write_text("  First  paragraph.\n\nSecond paragraph.  ", encoding="utf-8")
                 persistence = root / "nested" / "chroma_db"
                 stdout = io.StringIO()
-                with patch("ia_agents.ingest_cli.embed_google") as embed, redirect_stdout(stdout):
-                    embed.side_effect = lambda texts: [[float(i), 0.5] for i, _ in enumerate(texts)]
+                with patch("ia_agents.ingest_cli.embed_documents") as embed, redirect_stdout(stdout):
+                    embed.side_effect = lambda texts, titles=None: [
+                        [float(i), 0.5] for i, _ in enumerate(texts)
+                    ]
                     main([str(source), "--persist-directory", str(persistence), "--strategy", strategy,
                           "--chunk-size", "24", "--overlap", "5", "--max-chars", "24",
                           "--document-id", "example", "--source", "fixture", "--print-chunks"])
@@ -31,7 +33,10 @@ class IngestCliTests(unittest.TestCase):
                 collection = client.get_collection("documents")
                 stored = collection.get(include=["documents", "metadatas", "embeddings"])
                 self.assertGreater(len(stored["ids"]), 1)
-                embed.assert_called_once_with(stored["documents"])
+                embed.assert_called_once_with(
+                    stored["documents"],
+                    titles=[metadata["section_title"] for metadata in stored["metadatas"]],
+                )
                 self.assertIn(stored["ids"][0], stdout.getvalue())
                 for i, (chunk_id, text, metadata, vector) in enumerate(zip(
                     stored["ids"], stored["documents"], stored["metadatas"], stored["embeddings"],
@@ -54,7 +59,7 @@ class IngestCliTests(unittest.TestCase):
             source.write_text("A document.", encoding="utf-8")
             persistence = Path(directory) / "chroma_db"
             with patch("ia_agents.ingest_cli.Path", wraps=Path) as path_class, \
-                    patch("ia_agents.ingest_cli.embed_google", return_value=[[1.0, 0.0]]), \
+                    patch("ia_agents.ingest_cli.embed_documents", return_value=[[1.0, 0.0]]), \
                     patch("ia_agents.ingest_cli.chromadb.PersistentClient") as client_class, \
                     redirect_stdout(io.StringIO()):
                 # Exercise parser defaults while redirecting the relative default to a temp folder.
@@ -68,7 +73,7 @@ class IngestCliTests(unittest.TestCase):
             source = Path(directory) / "empty.txt"
             source.write_text(" \n\t", encoding="utf-8")
             for extra in ([], ["--overlap", "300"], ["--strategy", "paragraphs", "--max-chars", "0"]):
-                with self.subTest(extra=extra), patch("ia_agents.ingest_cli.embed_google") as embed:
+                with self.subTest(extra=extra), patch("ia_agents.ingest_cli.embed_documents") as embed:
                     with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                         main([str(source), *extra])
                     embed.assert_not_called()
@@ -77,7 +82,7 @@ class IngestCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "input.txt"
             source.write_text("A document.", encoding="utf-8")
-            with patch("ia_agents.ingest_cli.embed_google", return_value=[]), \
+            with patch("ia_agents.ingest_cli.embed_documents", return_value=[]), \
                     patch("ia_agents.ingest_cli.chromadb.PersistentClient") as client_class:
                 with self.assertRaisesRegex(ValueError, "number of vectors"):
                     main([str(source), "--persist-directory", str(Path(directory) / "db")])
@@ -89,7 +94,7 @@ class IngestCliTests(unittest.TestCase):
             source = root / "input.txt"
             source.write_text("A short document.", encoding="utf-8")
             persistence = root / "db"
-            with patch("ia_agents.ingest_cli.embed_google", return_value=[[1.0, 0.0]]), \
+            with patch("ia_agents.ingest_cli.embed_documents", return_value=[[1.0, 0.0]]), \
                     redirect_stdout(io.StringIO()):
                 main([str(source), "--persist-directory", str(persistence)])
                 main([str(source), "--persist-directory", str(persistence)])

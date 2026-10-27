@@ -10,7 +10,9 @@ from unittest.mock import patch
 
 from google.genai import types, _transformers
 
-from ia_agents.llm.embed import build_chunks, clean_text, embed_google
+from ia_agents.llm.embed import (
+    GoogleEmbeddingProvider, build_chunks, clean_text, search,
+)
 
 
 CORPUS_PATH = Path(__file__).with_name("test_corpus.txt")
@@ -61,30 +63,37 @@ class IngestionLabTests(unittest.TestCase):
                 print(f"Ingested at: {chunk.ingested_at.isoformat()}")
                 print(f"{'-' * 72}\n{chunk.text}")
 
-        # Only the external provider is mocked: cleaning, chunk construction,
-        # embed_google's batch request/response handling, and JSON I/O are real.
-        # These distinct vectors are fixtures, not semantic embeddings.
+        # Only the external embedding API is mocked. These vectors are fixtures.
         expected_vectors = [[float(i), 0.5, -0.5] for i in range(len(chunks))]
         response = SimpleNamespace(embeddings=[
             SimpleNamespace(values=vector) for vector in expected_vectors
         ])
         with patch.dict("os.environ", {
             "GOOGLE_API_KEY": "offline-test-key",
-            "GOOGLE_EMBEDDING_MODEL_ID": "offline-test-model",
+            "GOOGLE_EMBEDDING_MODEL_ID": "gemini-embedding-2",
         }), patch("ia_agents.llm.embed.genai.Client") as client_class:
-            embed_content = client_class.return_value.models.embed_content
+            provider = GoogleEmbeddingProvider()
+            embed_content = provider.client.models.embed_content
             embed_content.return_value = response
-            vectors = embed_google([chunk.text for chunk in chunks])
-            embed_content.assert_called_once_with(
-                model="offline-test-model",
-                contents=[types.Content(parts=[types.Part(text=c.text)]) for c in chunks],
+            vectors = provider.embed_documents(
+                [chunk.text for chunk in chunks],
+                titles=[chunk.section_title for chunk in chunks],
             )
-            # Exercise the SDK's Embedding 2 normalization: plain strings
-            # collapse into one Content, but these boundaries must survive.
+            expected_contents = [
+                types.Content(parts=[types.Part(
+                    text=f"title: {chunk.section_title or 'none'} | text: {chunk.text}"
+                )])
+                for chunk in chunks
+            ]
+            embed_content.assert_called_once_with(
+                model="gemini-embedding-2",
+                contents=expected_contents,
+            )
+            # Every document remains a separate embedding input.
             normalized = _transformers.t_contents(embed_content.call_args.kwargs["contents"])
             self.assertEqual(len(normalized), len(chunks))
             self.assertEqual([content.parts[0].text for content in normalized],
-                             [chunk.text for chunk in chunks])
+                             [f"title: {chunk.section_title or 'none'} | text: {chunk.text}" for chunk in chunks])
 
         self.assertEqual(len(vectors), len(chunks))
         for position, (chunk, vector) in enumerate(zip(chunks, vectors)):
@@ -139,6 +148,98 @@ class IngestionLabTests(unittest.TestCase):
         self.assertEqual(len(chunks), 1)
         self.assertEqual(chunks[0].section_id, "section_00")
         self.assertEqual(chunks[0].section_title, "Document")
+
+    def test_search_accepts_batched_queries_and_filters_each_result_set_by_distance(self):
+        collection = SimpleNamespace(
+            metadata={"hnsw:space": "cosine"},
+            query=unittest.mock.Mock(return_value={
+                "ids": [["chunk-a", "chunk-b"], ["chunk-c"]],
+                "documents": [["text a", "text b"], ["text c"]],
+                "metadatas": [[{"section_id": "section_01"}, {"section_id": "section_02"}],
+                              [{"section_id": "section_03"}]],
+                "distances": [[0.1, 0.8], [0.2]],
+            }),
+        )
+        queries = ["first question", "second question"]
+        query_embeddings = [[1.0, 0.0], [0.0, 1.0]]
+        embedding_provider = unittest.mock.Mock()
+        embedding_provider.embed_queries.return_value = query_embeddings
+        with patch("ia_agents.llm.embed.get_embedding_provider", return_value=embedding_provider) as get_provider:
+            results = search(
+                queries, collection, k=2, max_distance=0.5,
+                where={"document_id": "doc"},
+            )
+
+        get_provider.assert_called_once_with("google")
+        embedding_provider.embed_queries.assert_called_once_with(queries)
+        collection.query.assert_called_once_with(
+            query_embeddings=query_embeddings,
+            n_results=2,
+            where={"document_id": "doc"},
+        )
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0], [{
+            "chunk_id": "chunk-a", "text": "text a", "distance": 0.1,
+            "metadata": {"section_id": "section_01"},
+        }])
+        self.assertEqual(results[1], [{
+            "chunk_id": "chunk-c", "text": "text c", "distance": 0.2,
+            "metadata": {"section_id": "section_03"},
+        }])
+
+    def test_search_single_query_returns_flat_results(self):
+        collection = SimpleNamespace(
+            metadata={"hnsw:space": "cosine"},
+            query=unittest.mock.Mock(return_value={
+                "ids": [["chunk-a"]],
+                "documents": [["text a"]],
+                "metadatas": [[None]],
+                "distances": [[0.25]],
+            }),
+        )
+        embedding_provider = unittest.mock.Mock()
+        embedding_provider.embed_queries.return_value = [[1.0, 0.0]]
+        with patch("ia_agents.llm.embed.get_embedding_provider", return_value=embedding_provider):
+            results = search("question", collection)
+        self.assertEqual(results, [{
+            "chunk_id": "chunk-a", "text": "text a", "distance": 0.25,
+            "metadata": {},
+        }])
+
+    def test_gemini_embedding_2_formats_query_for_search(self):
+        response = SimpleNamespace(embeddings=[SimpleNamespace(values=[1.0, 0.0])])
+        with patch.dict("os.environ", {
+            "GOOGLE_API_KEY": "offline-test-key",
+            "GOOGLE_EMBEDDING_MODEL_ID": "gemini-embedding-2",
+        }), patch("ia_agents.llm.embed.genai.Client") as client_class:
+            provider = GoogleEmbeddingProvider()
+            embed_content = provider.client.models.embed_content
+            embed_content.return_value = response
+            vectors = provider.embed_queries(["Who was in Serú Girán?"])
+
+        self.assertEqual(vectors, [[1.0, 0.0]])
+        embed_content.assert_called_once_with(
+            model="gemini-embedding-2",
+            contents=[types.Content(parts=[types.Part(
+                text="task: search result | query: Who was in Serú Girán?",
+            )])],
+        )
+
+    def test_gemini_embedding_001_uses_retrieval_task_types(self):
+        response = SimpleNamespace(embeddings=[SimpleNamespace(values=[1.0, 0.0])])
+        with patch.dict("os.environ", {
+            "GOOGLE_API_KEY": "offline-test-key",
+            "GOOGLE_EMBEDDING_MODEL_ID": "gemini-embedding-001",
+        }), patch("ia_agents.llm.embed.genai.Client") as client_class:
+            provider = GoogleEmbeddingProvider()
+            embed_content = provider.client.models.embed_content
+            embed_content.return_value = response
+            provider.embed_documents(["An indexed chunk."])
+            provider.embed_queries(["A search question?"])
+
+        self.assertEqual(embed_content.call_count, 2)
+        self.assertEqual(embed_content.call_args_list[0].kwargs["config"].task_type, "RETRIEVAL_DOCUMENT")
+        self.assertEqual(embed_content.call_args_list[1].kwargs["config"].task_type, "RETRIEVAL_QUERY")
 
 
 

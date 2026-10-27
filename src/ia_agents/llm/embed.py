@@ -4,24 +4,194 @@ import unicodedata
 import hashlib
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, Protocol
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+import chromadb
 
 load_dotenv()
 
-def embed_google(texts: list[str]) -> list[list[float]]:
+
+class EmbeddingProvider(Protocol):
+    """Provider-neutral interface for retrieval document and query vectors."""
+
+    def embed_documents(self, texts: list[str], titles: list[str | None] | None = None) -> list[list[float]]: ...
+
+    def embed_queries(self, texts: list[str]) -> list[list[float]]: ...
+
+
+class GoogleEmbeddingProvider:
+    def __init__(self) -> None:
+        self.model = os.environ.get("GOOGLE_EMBEDDING_MODEL_ID", "gemini-embedding-2")
+        self.client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
+
+    def _embed(self, texts: list[str], purpose: Literal["document", "query"], titles: list[str | None] | None = None):
+        if not texts:
+            return []
+        if self.model.startswith("gemini-embedding-2"):
+            if purpose == "query":
+                contents = [
+                    types.Content(parts=[types.Part(text=f"task: search result | query: {text}")])
+                    for text in texts
+                ]
+            else:
+                if titles is not None and len(titles) != len(texts):
+                    raise ValueError("Provide one document title per text.")
+                document_titles = titles or [None] * len(texts)
+                contents = [
+                    types.Content(parts=[types.Part(text=f"title: {title or 'none'} | text: {text}")])
+                    for text, title in zip(texts, document_titles)
+                ]
+            config = None
+        else:
+            contents = [
+                types.Content(parts=[types.Part(text=text)])
+                for text in texts
+            ]
+            config = types.EmbedContentConfig(
+                task_type="RETRIEVAL_QUERY" if purpose == "query" else "RETRIEVAL_DOCUMENT"
+            )
+        response = self.client.models.embed_content(
+            model=self.model,
+            contents=contents,
+            **({"config": config} if config is not None else {}),
+        )
+        return [embedding.values for embedding in response.embeddings]
+
+    def embed_documents(self, texts: list[str], titles: list[str | None] | None = None) -> list[list[float]]:
+        return self._embed(texts, "document", titles=titles)
+
+    def embed_queries(self, texts: list[str]) -> list[list[float]]:
+        return self._embed(texts, "query")
+
+
+class OpenAIEmbeddingProvider:
+    def __init__(self) -> None:
+        from openai import OpenAI
+
+        self.model = os.environ.get("OPENAI_EMBEDDING_MODEL_ID", "text-embedding-3-small")
+        self.client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+
+    def _embed(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        response = self.client.embeddings.create(model=self.model, input=texts)
+        return [item.embedding for item in response.data]
+
+    def embed_documents(self, texts: list[str], titles: list[str | None] | None = None) -> list[list[float]]:
+        return self._embed(texts)
+
+    def embed_queries(self, texts: list[str]) -> list[list[float]]:
+        return self._embed(texts)
+
+
+class OllamaEmbeddingProvider:
+    def __init__(self) -> None:
+        from ollama import Client
+
+        self.model = os.environ.get("OLLAMA_EMBEDDING_MODEL_ID", "nomic-embed-text")
+        self.client = Client(host=os.environ.get("OLLAMA_HOST"))
+
+    def _embed(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        response = self.client.embed(model=self.model, input=texts)
+        return response.embeddings
+
+    def embed_documents(self, texts: list[str], titles: list[str | None] | None = None) -> list[list[float]]:
+        return self._embed(texts)
+
+    def embed_queries(self, texts: list[str]) -> list[list[float]]:
+        return self._embed(texts)
+
+
+def get_embedding_provider(provider: str | EmbeddingProvider | None = None) -> EmbeddingProvider:
+    """Create the configured embedding provider (Google by default)."""
+    if provider is not None and not isinstance(provider, str):
+        return provider
+    provider = (provider or os.environ.get("EMBEDDING_PROVIDER", "google")).lower()
+    providers = {
+        "google": GoogleEmbeddingProvider,
+        "openai": OpenAIEmbeddingProvider,
+        "ollama": OllamaEmbeddingProvider,
+    }
+    try:
+        return providers[provider]()
+    except KeyError as exc:
+        raise ValueError(f"Unsupported embedding provider: {provider!r}") from exc
+
+
+def embed_documents(texts: list[str], titles: list[str | None] | None = None) -> list[list[float]]:
     if not texts:
         return []
-    client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
-    resp = client.models.embed_content(
-        model=os.environ.get("GOOGLE_EMBEDDING_MODEL_ID", "gemini-embedding-2"),
-        # Explicit Content boundaries prevent Embedding 2 from aggregating
-        # all strings into a single embedding.
-        contents=[types.Content(parts=[types.Part(text=text)]) for text in texts],
-    )
-    return [e.values for e in resp.embeddings]
+    return get_embedding_provider().embed_documents(texts, titles=titles)
+
+
+def embed_queries(texts: list[str]) -> list[list[float]]:
+    if not texts:
+        return []
+    return get_embedding_provider().embed_queries(texts)
+
+
+def search(
+    queries: str | list[str],
+    collection: chromadb.Collection,
+    k: int = 3,
+    max_distance: float | None = None,
+    where: dict | None = None,
+    provider: str | EmbeddingProvider = "google",
+) -> list[dict] | list[list[dict]]:
+    """Search a Chroma collection with one or more text queries.
+
+    A single string returns a flat list of results. A list of strings returns
+    one result list per query. If ``max_distance`` is set, results farther
+    away than that threshold are omitted. Distances are returned as Chroma
+    reports them and depend on the collection's configured metric.
+    """
+    if k <= 0:
+        return [] if isinstance(queries, str) else [[] for _ in queries]
+
+    single_query = isinstance(queries, str)
+    query_texts = [queries] if single_query else queries
+    if not query_texts:
+        return []
+
+    embedding_provider = get_embedding_provider(provider)
+    query_embeddings = embedding_provider.embed_queries(query_texts)
+    if len(query_embeddings) != len(query_texts):
+        raise ValueError("Google returned a different number of vectors than queries.")
+
+    query_options = {"query_embeddings": query_embeddings, "n_results": k}
+    if where is not None:
+        query_options["where"] = where
+    response = collection.query(**query_options)
+
+    ids_by_query = response.get("ids", [])
+    documents_by_query = response.get("documents", [])
+    metadatas_by_query = response.get("metadatas", [])
+    distances_by_query = response.get("distances", [])
+    if not all(len(field) == len(query_texts) for field in (
+        ids_by_query, documents_by_query, metadatas_by_query, distances_by_query,
+    )):
+        raise ValueError("Chroma returned a different number of result groups than queries.")
+
+    results_by_query = []
+    for ids, documents, metadatas, distances in zip(
+        ids_by_query, documents_by_query, metadatas_by_query, distances_by_query,
+    ):
+        query_results = []
+        for chunk_id, text, metadata, distance in zip(ids, documents, metadatas, distances):
+            if max_distance is None or distance <= max_distance:
+                query_results.append({
+                    "chunk_id": chunk_id,
+                    "text": text,
+                    "distance": distance,
+                    "metadata": metadata or {},
+                })
+        results_by_query.append(query_results)
+
+    return results_by_query[0] if single_query else results_by_query
 
 def clean_text(text: str) -> str:
     text = unicodedata.normalize("NFKC", text) # NFKC: Normalization Form Compatibility Composition. There 4 dif options in the Unicode normalization standard: https://unicode.org/reports/tr15/

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import chromadb
 
-from .llm.embed import build_chunks, clean_text, embed_google
+from .llm.embed import build_chunks, clean_text, embed_documents
 
 
 def main(argv=None):
@@ -48,7 +48,10 @@ def main(argv=None):
             print(f"Source: {chunk.source} | Ingested: {chunk.ingested_at.isoformat()}")
             print(f"{'-' * 72}\n{chunk.text}")
 
-    vectors = embed_google([chunk.text for chunk in chunks])
+    vectors = embed_documents(
+        [chunk.text for chunk in chunks],
+        titles=[chunk.section_title for chunk in chunks],
+    )
     if len(vectors) != len(chunks):
         raise ValueError("Google returned a different number of vectors than chunks.")
     args.persist_directory.mkdir(parents=True, exist_ok=True)
