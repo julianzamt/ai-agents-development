@@ -13,3 +13,4 @@ six==1.17.0
 urllib3==2.8.0
 numpy==2.5.4
 pydantic==2.14.1
+chromadb==1.5.9
