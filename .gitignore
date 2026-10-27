@@ -6,6 +6,9 @@ __pycache__/
 # Local conversation and settings
 data/*.json
 
+# Local ChromaDB persistence
+chroma_db/
+
 *.egg-info/
 build/
 dist/

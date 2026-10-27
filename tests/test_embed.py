@@ -1,11 +1,9 @@
 """Class 4 laboratory: offline corpus ingestion, storage, and traceability."""
 
 import hashlib
-import json
 import os
 import tempfile
 import unittest
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -80,48 +78,31 @@ class IngestionLabTests(unittest.TestCase):
                              [chunk.text for chunk in chunks])
 
         self.assertEqual(len(vectors), len(chunks))
-        records = []
-        for chunk, vector in zip(chunks, vectors):
-            record = asdict(chunk)
-            record["ingested_at"] = chunk.ingested_at.isoformat()
-            record["vector"] = vector
-            records.append(record)
-
-        with tempfile.TemporaryDirectory() as directory:
-            output_path = Path(directory) / "ingested_chunks.json"
-            output_path.write_text(
-                json.dumps(records, ensure_ascii=False), encoding="utf-8",
-            )
-            stored = json.loads(output_path.read_text(encoding="utf-8"))
-
-        self.assertEqual(stored, records)
-        by_id = {record["chunk_id"]: record for record in stored}
-        self.assertEqual(len(by_id), len(chunks))
-        for position, record in enumerate(stored):
+        self.assertEqual(len(vectors), len(chunks))
+        for position, (chunk, vector) in enumerate(zip(chunks, vectors)):
             with self.subTest(position=position):
-                self.assertTrue(0 < len(record["text"]) < 1_500)
+                self.assertTrue(0 < len(chunk.text) < 1_500)
                 if strategy == "characters":
-                    self.assertEqual(record["text"], text[position * 850:position * 850 + 1_000])
+                    self.assertEqual(chunk.text, text[position * 850:position * 850 + 1_000])
                 else:
-                    self.assertLessEqual(len(record["text"]), 1_000)
-                self.assertEqual(record["vector"], expected_vectors[position])
-                self.assertEqual(record["source"], CORPUS_PATH.name)
-                timestamp = datetime.fromisoformat(record["ingested_at"])
+                    self.assertLessEqual(len(chunk.text), 1_000)
+                self.assertEqual(vector, expected_vectors[position])
+                self.assertEqual(chunk.source, CORPUS_PATH.name)
+                timestamp = chunk.ingested_at
                 self.assertIsNotNone(timestamp.utcoffset())
-                content_hash = hashlib.sha256(record["text"].encode()).hexdigest()[:8]
+                content_hash = hashlib.sha256(chunk.text.encode()).hexdigest()[:8]
                 expected_id = f"{document_id}-{position:03d}-{content_hash}"
-                self.assertEqual(record["chunk_id"], expected_id)
-                recovered = by_id[expected_id]
-                self.assertEqual(recovered["document_id"], document_id)
-                self.assertEqual(recovered["position"], position)
+                self.assertEqual(chunk.chunk_id, expected_id)
+                self.assertEqual(chunk.document_id, document_id)
+                self.assertEqual(chunk.position, position)
 
         # Recover the complete cleaned document, including its final fragment.
         if strategy == "characters":
-            reconstructed = stored[0]["text"] + "".join(
-                record["text"][150:] for record in stored[1:]
+            reconstructed = chunks[0].text + "".join(
+                chunk.text[150:] for chunk in chunks[1:]
             )
         else:
-            reconstructed = "\n\n".join(record["text"] for record in stored)
+            reconstructed = "\n\n".join(chunk.text for chunk in chunks)
         self.assertEqual(reconstructed, text)
 
 

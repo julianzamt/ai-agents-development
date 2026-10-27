@@ -92,16 +92,17 @@ Refresh the editable installation to register the separate `ingest` command:
 
 ```bash
 python3 -m pip install -e .
-ingest tests/test_corpus.txt --strategy paragraphs --max-chars 1000 --output data/charly_embeddings.json
+ingest tests/test_corpus.txt --strategy paragraphs --max-chars 1000 --persist-directory data/chroma_db --collection charly
 ```
 
 Alternatively, run `python3 -m ia_agents.ingest_cli` with the same arguments.
 Character chunking uses `--strategy characters --chunk-size 1000 --overlap 150`.
 Add `--print-chunks` to inspect the chunks. `--document-id` and `--source` override
 the metadata defaults (input stem and input path). Paragraphs larger than
-`--max-chars` remain intact. The command makes real Google API requests and writes
-a JSON list with text, chunk ID, document ID, position, source, UTC ingestion time,
-and vector. An existing output file is replaced after embedding succeeds.
+`--max-chars` remain intact. The command makes real Google API requests and stores
+chunk text, IDs, metadata, and embeddings in the local ChromaDB collection. The
+default persistence directory is `./chroma_db` and the default collection is
+`documents`; repeated ingestion upserts chunks by their deterministic IDs.
 
 ## Tests
 

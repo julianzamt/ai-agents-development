@@ -1,9 +1,9 @@
-"""Ingest a UTF-8 text file into a JSON collection of Google embeddings."""
+"""Ingest a UTF-8 text file into a local ChromaDB collection."""
 
 import argparse
-import json
-from dataclasses import asdict
 from pathlib import Path
+
+import chromadb
 
 from .llm.embed import build_chunks, clean_text, embed_google
 
@@ -11,7 +11,11 @@ from .llm.embed import build_chunks, clean_text, embed_google
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, help="UTF-8 text file")
-    parser.add_argument("--output", type=Path, required=True, help="Destination JSON file")
+    parser.add_argument(
+        "--persist-directory", type=Path, default=Path("chroma_db"),
+        help="ChromaDB persistence directory (default: ./chroma_db)",
+    )
+    parser.add_argument("--collection", default="documents", help="ChromaDB collection name")
     parser.add_argument("--document-id", help="Document ID (default: input filename without extension)")
     parser.add_argument("--source", help="Source metadata (default: input path)")
     parser.add_argument("--strategy", choices=["characters", "paragraphs"], default="characters")
@@ -21,8 +25,6 @@ def main(argv=None):
     parser.add_argument("--print-chunks", action="store_true", help="Print chunk metadata and text")
     args = parser.parse_args(argv)
 
-    if args.input.resolve() == args.output.resolve():
-        parser.error("Input and output must be different files.")
     if args.strategy == "characters" and not (0 <= args.overlap < args.chunk_size):
         parser.error("Require chunk-size > 0 and 0 <= overlap < chunk-size.")
     if args.strategy == "paragraphs" and args.max_chars <= 0:
@@ -48,15 +50,27 @@ def main(argv=None):
     vectors = embed_google([chunk.text for chunk in chunks])
     if len(vectors) != len(chunks):
         raise ValueError("Google returned a different number of vectors than chunks.")
-    records = []
-    for chunk, vector in zip(chunks, vectors):
-        record = asdict(chunk)
-        record["ingested_at"] = chunk.ingested_at.isoformat()
-        record["vector"] = vector
-        records.append(record)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"Saved {len(records)} chunks and embeddings to {args.output}")
+    args.persist_directory.mkdir(parents=True, exist_ok=True)
+    client = chromadb.PersistentClient(path=str(args.persist_directory))
+    collection = client.get_or_create_collection(name=args.collection)
+    collection.upsert(
+        ids=[chunk.chunk_id for chunk in chunks],
+        embeddings=vectors,
+        documents=[chunk.text for chunk in chunks],
+        metadatas=[
+            {
+                "document_id": chunk.document_id,
+                "position": chunk.position,
+                "source": chunk.source,
+                "ingested_at": chunk.ingested_at.isoformat(),
+            }
+            for chunk in chunks
+        ],
+    )
+    print(
+        f"Saved {len(chunks)} chunks and embeddings to {args.persist_directory} "
+        f"(collection: {args.collection})"
+    )
 
 
 if __name__ == "__main__":
