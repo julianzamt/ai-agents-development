@@ -5,7 +5,7 @@ from pathlib import Path
 
 import chromadb
 
-from .llm.embed import search
+from .llm.embed import collection_embedding, search
 
 
 def main(argv=None):
@@ -35,6 +35,15 @@ def main(argv=None):
         collection = client.get_collection(name=args.collection)
     except Exception as exc:
         parser.error(f"Could not open collection {args.collection!r}: {exc}")
+
+    try:
+        recorded = collection_embedding(collection)
+    except ValueError as exc:
+        parser.error(str(exc))
+    print(
+        f"Embedding (stored vectors and queries): "
+        f"{recorded['embedding_provider']} / {recorded['embedding_model']}"
+    )
 
     filters = []
     if args.section:

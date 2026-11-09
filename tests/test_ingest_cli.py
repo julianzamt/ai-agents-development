@@ -57,6 +57,7 @@ class IngestCliTests(unittest.TestCase):
                     titles=[metadata["section_title"] for metadata in stored["metadatas"]],
                 )
                 self.assertIn(stored["ids"][0], stdout.getvalue())
+                self.assertIn("Embedding: google / test-model", stdout.getvalue())
                 for i, (chunk_id, text, metadata, vector) in enumerate(zip(
                     stored["ids"], stored["documents"], stored["metadatas"], stored["embeddings"],
                 )):

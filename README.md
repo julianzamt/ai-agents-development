@@ -88,10 +88,13 @@ individual requests only.
 ## Document ingestion
 
 Embedding provider defaults to Google. Set `EMBEDDING_PROVIDER` to `google`,
-`openai`, or `ollama`. Configure the matching credentials and optionally set
-`GOOGLE_EMBEDDING_MODEL_ID`, `OPENAI_EMBEDDING_MODEL_ID`, or
-`OLLAMA_EMBEDDING_MODEL_ID`. Google uses separate document and query embedding
-formats recommended for retrieval by the selected Gemini embedding model.
+`openai`, `ollama`, or `voyage`. Configure the matching credentials and optionally set
+`GOOGLE_EMBEDDING_MODEL_ID`, `OPENAI_EMBEDDING_MODEL_ID`, `OLLAMA_EMBEDDING_MODEL_ID`,
+or `VOYAGE_EMBEDDING_MODEL_ID`. Google uses separate document and query embedding
+formats recommended for retrieval by the selected Gemini embedding model. Voyage
+(`VOYAGE_API_KEY`, default model `voyage-4`) is used for embeddings only, not as an
+`LLM_PROVIDER`; it marks inputs as `document` or `query`, and ingestion sends them in
+batches of 128.
 Refresh the editable installation to register the separate `ingest` command:
 
 ```bash

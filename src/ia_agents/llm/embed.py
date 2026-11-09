@@ -119,9 +119,39 @@ class OllamaEmbeddingProvider:
         return self._embed(texts)
 
 
+class VoyageEmbeddingProvider:
+    name = "voyage"
+    # Voyage accepts up to 1,000 texts and a model-specific token total per request.
+    batch_size = 128
+
+    def __init__(self, model: str | None = None) -> None:
+        import voyageai
+
+        self.model = model or os.environ.get("VOYAGE_EMBEDDING_MODEL_ID", "voyage-4")
+        self.client = voyageai.Client(api_key=os.environ["VOYAGE_API_KEY"])
+
+    def _embed(self, texts: list[str], input_type: Literal["document", "query"]) -> list[list[float]]:
+        # input_type makes Voyage prepend its retrieval prompt; it matters for quality.
+        vectors: list[list[float]] = []
+        for start in range(0, len(texts), self.batch_size):
+            response = self.client.embed(
+                texts[start:start + self.batch_size], model=self.model, input_type=input_type,
+            )
+            vectors.extend(response.embeddings)
+        return vectors
+
+    def embed_documents(self, texts: list[str], titles: list[str | None] | None = None) -> list[list[float]]:
+        return self._embed(texts, "document")
+
+    def embed_queries(self, texts: list[str]) -> list[list[float]]:
+        return self._embed(texts, "query")
+
+
 EMBEDDING_PROVIDERS = {
     provider.name: provider
-    for provider in (GoogleEmbeddingProvider, OpenAIEmbeddingProvider, OllamaEmbeddingProvider)
+    for provider in (
+        GoogleEmbeddingProvider, OpenAIEmbeddingProvider, OllamaEmbeddingProvider, VoyageEmbeddingProvider,
+    )
 }
 
 

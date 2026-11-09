@@ -240,6 +240,38 @@ class IngestionLabTests(unittest.TestCase):
                 get_provider.assert_not_called()
                 collection.query.assert_not_called()
 
+    def test_voyage_marks_input_type_and_batches_requests(self):
+        with patch.dict("os.environ", {"VOYAGE_API_KEY": "test-key"}), \
+                patch("voyageai.Client") as client_class:
+            embed = client_class.return_value.embed
+            embed.side_effect = lambda texts, **_: SimpleNamespace(
+                embeddings=[[float(len(text)), 0.0] for text in texts],
+            )
+            provider = get_embedding_provider("voyage")
+            client_class.assert_called_once_with(api_key="test-key")
+            self.assertEqual((provider.name, provider.model), ("voyage", "voyage-4"))
+
+            provider.batch_size = 2
+            vectors = provider.embed_documents(["a", "bb", "ccc"], titles=["x", None, None])
+            self.assertEqual(vectors, [[1.0, 0.0], [2.0, 0.0], [3.0, 0.0]])
+            self.assertEqual([call.args[0] for call in embed.call_args_list], [["a", "bb"], ["ccc"]])
+            for call in embed.call_args_list:
+                self.assertEqual(call.kwargs, {"model": "voyage-4", "input_type": "document"})
+
+            embed.reset_mock()
+            self.assertEqual(provider.embed_queries(["question"]), [[8.0, 0.0]])
+            embed.assert_called_once_with(["question"], model="voyage-4", input_type="query")
+
+            embed.reset_mock()
+            self.assertEqual(provider.embed_documents([]), [])
+            embed.assert_not_called()
+
+    def test_voyage_model_comes_from_environment_or_argument(self):
+        with patch.dict("os.environ", {"VOYAGE_API_KEY": "k", "VOYAGE_EMBEDDING_MODEL_ID": "voyage-4-large"}), \
+                patch("voyageai.Client"):
+            self.assertEqual(get_embedding_provider("voyage").model, "voyage-4-large")
+            self.assertEqual(get_embedding_provider("voyage", "voyage-3.5").model, "voyage-3.5")
+
     def test_get_embedding_provider_defaults_to_environment(self):
         with patch.dict("os.environ", {
             "EMBEDDING_PROVIDER": "Google", "GOOGLE_API_KEY": "test-key",

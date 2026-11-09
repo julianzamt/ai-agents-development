@@ -145,7 +145,8 @@ def main(argv=None):
     )
     print(
         f"Saved {len(chunks)} chunks and embeddings to {args.persist_directory} "
-        f"(collection: {args.collection})"
+        f"(collection: {args.collection})\n"
+        f"Embedding: {provider.name} / {provider.model}"
     )
 
 
