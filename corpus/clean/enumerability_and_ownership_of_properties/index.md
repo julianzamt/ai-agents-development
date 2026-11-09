@@ -128,16 +128,3 @@ const SimplePropertyRetriever = {
   },
 };
 ```
-
-## See also
-
-- `in`
-- `for...in`
-- `Object.prototype.hasOwnProperty()`
-- `Object.prototype.propertyIsEnumerable()`
-- `Object.getOwnPropertyNames()`
-- `Object.getOwnPropertySymbols()`
-- `Object.keys()`
-- `Object.getOwnPropertyDescriptors()`
-- `Object.hasOwn()`
-- `Reflect.ownKeys()`

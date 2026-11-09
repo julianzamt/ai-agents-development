@@ -504,8 +504,3 @@ console.log(anotherFruit); // { name: "grape" }; not { name: "apple" }
 ```
 
 For more information about comparison operators, see equality operators.
-
-## See also
-
-- Inheritance and the prototype chain
-- Classes

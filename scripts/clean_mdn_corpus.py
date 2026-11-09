@@ -16,7 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})")  # any indent: fences nest inside list items
 FRONT_MATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.S)
 INLINE_CODE_RE = re.compile(r"(`+)(?!`).+?(?<!`)\1(?!`)", re.S)
 MASK = "\x00{}\x00"
@@ -37,6 +37,11 @@ HTML_TAG_RE = re.compile(
 )
 IMAGE_RE = re.compile(r"!\[\s*([^\]]*?)\s*\]\([^)]*\)", re.S)
 LINK_RE = re.compile(r"\[([^\]]+)\]\((?:[^()\s]|\([^)]*\))+(?:\s+\"[^\"]*\")?\)")
+# Sections that are only link lists: after links are flattened they are bare titles, so they only add noise.
+DROP_SECTION_RE = re.compile(r"^(#{1,6})[ \t]+see also[ \t]*$", re.I)
+# Code blocks MDN marks "hidden" are demo scaffolding the reader never sees.
+HIDDEN_FENCE_RE = re.compile(r"^[ \t]*(?:`{3,}|~{3,})[ \t]*\w[^\n]*\bhidden\b")
+HEADING_LEVEL_RE = re.compile(r"^(#{1,6})[ \t]")
 ALERT_RE = re.compile(r"^(\s*>\s*)\[!(NOTE|WARNING|TIP|CAUTION|IMPORTANT)\][ \t]*$", re.M | re.I)
 
 
@@ -64,6 +69,43 @@ def split_fences(text: str) -> list[tuple[bool, str]]:
     if buffer:
         segments.append((fence is not None, "".join(buffer)))
     return segments
+
+
+def drop_sections(text: str, stats: dict[str, int]) -> str:
+    """Remove "See also" sections: the heading and everything up to the next heading of the same or higher level."""
+    kept: list[str] = []
+    dropping_level = 0
+    for is_code, segment in split_fences(text):
+        if is_code:
+            if not dropping_level:
+                kept.append(segment)
+            continue
+        for line in segment.splitlines(keepends=True):
+            heading = HEADING_LEVEL_RE.match(line)
+            if dropping_level and heading and len(heading.group(1)) <= dropping_level:
+                dropping_level = 0
+            if not dropping_level and DROP_SECTION_RE.match(line):
+                dropping_level = len(HEADING_LEVEL_RE.match(line).group(1))
+                stats["sections_dropped"] = stats.get("sections_dropped", 0) + 1
+            if not dropping_level:
+                kept.append(line)
+    return "".join(kept)
+
+
+def drop_hidden_blocks(text: str, stats: dict[str, int]) -> str:
+    """Remove fenced code blocks whose info string contains the word "hidden"."""
+    kept = []
+    for is_code, segment in split_fences(text):
+        if is_code and HIDDEN_FENCE_RE.match(segment):
+            stats["hidden_blocks_dropped"] = stats.get("hidden_blocks_dropped", 0) + 1
+            continue
+        kept.append(segment)
+    return "".join(kept)
+
+
+def drop_noise(text: str, stats: dict[str, int]) -> str:
+    """Structural removals applied before any prose rule: "See also" sections and hidden code blocks."""
+    return drop_hidden_blocks(drop_sections(text, stats), stats)
 
 
 # --- macros ------------------------------------------------------------------
@@ -233,6 +275,7 @@ def clean_document(raw: str) -> tuple[str, dict[str, int]]:
         front = "---\n" + "\n".join(kept) + "\n---\n\n"
         raw = raw[match.end():]
 
+    raw = drop_noise(raw, stats)
     parts = [text if is_code else clean_prose(text, stats) for is_code, text in split_fences(raw)]
     body = "".join(parts)
     body = re.sub(r"\n{3,}", "\n\n", body).strip("\n")
@@ -246,6 +289,7 @@ LEFTOVERS = {
     "html tag": re.compile(r"</?(?:table|thead|tbody|tr|td|th|p|div|em|strong|code|br|a|sup|li)\b", re.I),
     "html comment": re.compile(r"<!--"),
     "markdown link": re.compile(r"\]\(\S"),
+    "see also section": re.compile(r"^#{1,6}[ \t]+see also[ \t]*$", re.I | re.M),
 }
 
 
@@ -254,6 +298,8 @@ def leftovers(text: str) -> list[str]:
     problems = []
     for is_code, segment in split_fences(text):
         if is_code:
+            if HIDDEN_FENCE_RE.match(segment):
+                problems.append("hidden code block")
             continue
         segment = INLINE_CODE_RE.sub("", segment)
         for name, pattern in LEFTOVERS.items():
@@ -285,7 +331,7 @@ def main(argv: list[str] | None = None) -> int:
             totals[rule] = totals.get(rule, 0) + n
 
         problems = leftovers(cleaned)
-        if code_blocks(raw) != code_blocks(cleaned):
+        if code_blocks(drop_noise(raw, {})) != code_blocks(cleaned):
             problems.append("code fences changed")
         if problems:
             failures += 1

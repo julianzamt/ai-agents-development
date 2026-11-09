@@ -103,18 +103,3 @@ const regexpVowels = /[aeiouy]/gi;
 console.log("Number of vowels:", aliceExcerpt.match(regexpVowels).length);
 // Number of vowels: 26
 ```
-
-## See also
-
-- Regular expressions guide
-- Assertions guide
-- Quantifiers guide
-- Groups and backreferences guide
-- `RegExp`
-- Regular expressions reference
-- Character class: `[...]`, `[^...]`
-- Character class escape: `\d`, `\D`, `\w`, `\W`, `\s`, `\S`
-- Character escape: `\n`, `\u{...}`
-- Disjunction: `|`
-- Unicode character class escape: `\p{...}`, `\P{...}`
-- Wildcard: `.`

@@ -104,17 +104,3 @@ console.log(lines.join("\n"));
 //   return x + y;
 // }
 ```
-
-## See also
-
-- Regular expressions guide
-- Character classes guide
-- Assertions guide
-- Quantifiers guide
-- `RegExp`
-- Regular expressions reference
-- Backreference: `\1`, `\2`
-- Capturing group: `(...)`
-- Named backreference: `\k<name>`
-- Named capturing group: `(?<name>...)`
-- Non-capturing group: `(?:...)`

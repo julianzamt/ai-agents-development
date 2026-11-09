@@ -676,24 +676,6 @@ Try the demo below:
 <output id="output"></output>
 ```
 
-```css hidden live-sample___display_names
-output {
-  display: block;
-  margin: 1em;
-  font-size: x-large;
-}
-
-rt {
-  font-weight: bold;
-}
-
-ruby {
-  border-bottom: 1px dotted;
-  ruby-position: under;
-  ruby-align: center;
-}
-```
-
 ```js live-sample___display_names
 const langSelect = document.getElementById("lang");
 const calSelect = document.getElementById("calendar");

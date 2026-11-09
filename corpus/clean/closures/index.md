@@ -394,13 +394,6 @@ The reason for this is that the functions assigned to `onfocus` form closures; t
 
 One solution in this case is to use more closures: in particular, to use a function factory as described earlier:
 
-```html hidden live-sample___closures_factory
-<p id="help">Helpful notes will appear here</p>
-<p>Email: <input type="text" id="email" name="email" /></p>
-<p>Name: <input type="text" id="name" name="name" /></p>
-<p>Age: <input type="text" id="age" name="age" /></p>
-```
-
 ```js live-sample___closures_factory
 function showHelp(help) {
   document.getElementById("help").textContent = help;

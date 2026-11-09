@@ -109,7 +109,13 @@ ingest tests/test_corpus.txt --strategy paragraphs --max-chars 1000 --persist-di
 ```
 
 Alternatively, run `python3 -m ia_agents.rag.ingest_cli` with the same arguments.
-Character chunking uses `--strategy characters --chunk-size 1000 --overlap 150`.
+The default strategy, `markdown`, is for Markdown such as `corpus/clean/`: it splits at
+`##` and `###` headings, prefixes every chunk with its heading path (`Title > H2 > H3`),
+never cuts a code fence or table, and merges tiny sections into a neighbour
+(`--min-chars 300`, `--target-chars 1200`, `--max-chars 2000`). The front matter `slug`
+becomes the document ID. Ingest one file at a time, for example
+`ingest corpus/clean/closures/index.md`. Plain text uses `--strategy paragraphs` or
+`--strategy characters --chunk-size 1000 --overlap 150`.
 Add `--print-chunks` to inspect the chunks. `--document-id` and `--source` override
 the metadata defaults (input stem and input path). Paragraphs larger than
 `--max-chars` remain intact. The command calls the configured embedding provider

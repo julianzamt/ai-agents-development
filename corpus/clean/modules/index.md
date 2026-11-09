@@ -714,13 +714,3 @@ The core language does _not_ care about the following:
 - The module loading process. The host environment is responsible for fetching modules, including applying any import attributes, subject to the language's requirements, such as those for JSON modules.
 
 In reality, runtime environments like browsers, Node.js, and Deno often end up implementing the same set of features, so that code is more likely to work across platforms. This guide walks through an example that's run in the browser, but we focus on core concepts that are applicable to all environments. In the Using modules on the web guide, we'll cover the specifics of module loading in browsers, especially import specifiers. Then, in the Modules across platforms guide, we will go further and discuss how the module system is integrated with other environments.
-
-## See also
-
-- Using modules on the web
-- Understanding the module graph
-- Modules across platforms
-- JavaScript modules on v8.dev (2018)
-- ES modules: A cartoon deep-dive on hacks.mozilla.org (2018)
-- ES6 in Depth: Modules on hacks.mozilla.org (2015)
-- Exploring JS, Ch.16: Modules by Dr. Axel Rauschmayer

@@ -38,7 +38,7 @@ class IngestCliTests(unittest.TestCase):
             with self.subTest(strategy=strategy), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 source = root / "corpus.txt"
-                source.write_text("  First  paragraph.\n\nSecond paragraph.  ", encoding="utf-8")
+                source.write_text("  First paragraph.\n\nSecond paragraph.  ", encoding="utf-8")
                 persistence = root / "nested" / "chroma_db"
                 stdout = io.StringIO()
                 provider = fake_provider()

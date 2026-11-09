@@ -1057,11 +1057,3 @@ while (true) {
 ```
 
 This implements the same functionality, and note how both loops are synchronous—this should be much more efficient than passing messages back and forth!
-
-## See also
-
-- JavaScript execution model
-- Web workers API
-- `SharedArrayBuffer`
-- `Atomics`
-- `Worker.postMessage()`

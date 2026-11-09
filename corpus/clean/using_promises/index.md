@@ -540,11 +540,3 @@ For more details, refer to Tasks vs. microtasks.
 If you run into situations in which you have promises and tasks (such as events or callbacks) which are firing in unpredictable orders, it's possible you may benefit from using a microtask to check status or balance out your promises when promises are created conditionally.
 
 If you think microtasks may help solve this problem, see the microtask guide to learn more about how to use `queueMicrotask()` to enqueue a function as a microtask.
-
-## See also
-
-- `Promise`
-- `async function`
-- `await`
-- Promises/A+ specification
-- We have a problem with promises on pouchdb.com (2015)

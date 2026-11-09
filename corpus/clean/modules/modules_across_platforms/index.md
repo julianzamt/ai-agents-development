@@ -551,20 +551,3 @@ In order to maximize the reusability of a module, it is often advised to make th
   The `globalThis` variable is a global object that is available in every environment and is useful if you want to read or create global variables within modules.
 
 These practices are not unique to modules. Still, with the trend of code reusability and modularization, you are encouraged to make your code cross-platform so that it can be enjoyed by as many people as possible. Runtimes like Node.js are also actively implementing web APIs where possible to improve interoperability with the web.
-
-## See also
-
-- JavaScript modules
-- Using modules on the web
-- Understanding the module graph
-- CommonJS module specification
-- AMD specification
-- UMD patterns
-- RequireJS API
-- Node.js: ECMAScript modules, CommonJS modules, and packages
-- Modules in Deno
-- Module resolution in Bun
-- CommonJS module transformation in Babel
-- Module configuration in SWC
-- TypeScript: Modules theory, module reference, and choosing compiler options
-- Vite: Dependency pre-bundling, features, and library mode

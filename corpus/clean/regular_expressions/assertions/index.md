@@ -177,16 +177,3 @@ console.log(newFruits); // ['ripe apple A', 'green orange B', 'ripe apple C']
 ```
 
 See more examples in the lookbehind assertion reference.
-
-## See also
-
-- Regular expressions guide
-- Character classes guide
-- Quantifiers guide
-- Groups and backreferences guide
-- `RegExp`
-- Regular expressions reference
-- Input boundary assertion: `^`, `$`
-- Lookahead assertion: `(?=...)`, `(?!...)`
-- Lookbehind assertion: `(?<=...)`, `(?<!...)`
-- Word boundary assertion: `\b`, `\B`

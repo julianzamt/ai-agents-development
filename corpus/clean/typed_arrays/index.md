@@ -285,13 +285,3 @@ as well as the spread syntax:
 const typedArray = new Uint8Array([1, 2, 3, 4]);
 const normalArray = [...typedArray];
 ```
-
-## See also
-
-- Faster Canvas Pixel Manipulation with Typed Arrays on hacks.mozilla.org (2011)
-- Typed arrays - Binary data in the browser on web.dev (2012)
-- Endianness
-- `ArrayBuffer`
-- `DataView`
-- `TypedArray`
-- `SharedArrayBuffer`

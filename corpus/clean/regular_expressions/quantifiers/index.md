@@ -103,13 +103,3 @@ console.log(text.match(nonGreedyRegexp));
 // "I"
 // The match is the smallest one possible
 ```
-
-## See also
-
-- Regular expressions guide
-- Character classes guide
-- Assertions guide
-- Groups and backreferences guide
-- `RegExp`
-- Regular expressions reference
-- Quantifier: `*`, `+`, `?`, `{n}`, `{n,}`, `{n,m}`

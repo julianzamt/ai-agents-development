@@ -700,9 +700,3 @@ As explained in Tainting effects of top-level await, modules containing top-leve
 For both kinds of phase modifiers, note that the modifier acts on the _import_, not on the _target module_. This means another ordinary import can cause the same module to evaluate earlier, and no separate cache entries are created for deferred and eager imports of the same module. For more information, see the caching semantics of `import defer` and `import source`.
 
 Just like `import` is to `import()`, `import source` and `import defer` declarations also have dynamic `import.source()` and `import.defer()` forms, which start their requests when the expressions evaluate.
-
-## See also
-
-- JavaScript modules
-- Using modules on the web
-- Modules across platforms

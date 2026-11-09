@@ -450,9 +450,3 @@ export async function setUser(name) {
 In a window, a relative URL passed directly to `fetch()`, such as `fetch("../api/set-user")`, is resolved against the document's base URL. It is not resolved relative to the JavaScript module containing the call. Constructing the URL explicitly makes the resource location independent of the page that imports the module.
 
 To resolve a module specifier using the host's module resolution rules, use `import.meta.resolve()`. For example, in a browser with an import map that defines `"shapes"`, `import.meta.resolve("shapes")` returns its resolved URL. Unlike `import()`, this resolves the specifier without loading or evaluating the module.
-
-## See also
-
-- HTML `<script>` element
-- `<script type="importmap">`
-- JavaScript modules

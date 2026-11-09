@@ -263,8 +263,3 @@ As you may have noticed, there are three distinct paths through which objects ma
 - String coercion: `[Symbol.toPrimitive]("string")` → `toString()` → `valueOf()`
 
 In all cases, `[Symbol.toPrimitive]()`, if present, must be callable and return a primitive, while `valueOf` or `toString` will be ignored if they are not callable or return an object. At the end of the process, if successful, the result is guaranteed to be a primitive. The resulting primitive is then subject to further coercions depending on the context.
-
-## See also
-
-- JavaScript Data Structures and Algorithms by Oleksii Trekhleb
-- Computer Science in JavaScript by Nicholas C. Zakas
