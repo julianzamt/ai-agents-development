@@ -1,21 +1,11 @@
-"""Prepare text for ingestion: cleaning and chunking. No embedding provider or network needed."""
+"""Prepare text for ingestion: chunking. No embedding provider or network needed."""
 
 import re
-import unicodedata
 import hashlib
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Literal
 
-
-def clean_text(text: str) -> str:
-    text = unicodedata.normalize("NFKC", text) # NFKC: Normalization Form Compatibility Composition. There 4 dif options in the Unicode normalization standard: https://unicode.org/reports/tr15/
-    text = re.sub(r"[ \t]+", " ", text) # Replaces each consecutive group of spaces or tabs with one space
-    text = re.sub(r"\n{3,}", "\n\n", text) # Replaces three or more consecutive newline characters with two, preserving a single blank line between paragraphs
-    
-    ### Add more rules relative to the text to be processed...
-
-    return text.strip()
 
 def chunk_by_characters(text: str, chunk_size: int = 300, overlap: int = 50) -> list[str]:
     """Split text into fixed-size, overlapping character chunks without respecting sentence boundaries."""

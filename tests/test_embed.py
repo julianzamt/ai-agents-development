@@ -11,7 +11,7 @@ from unittest.mock import patch
 from google.genai import types, _transformers
 
 from ia_agents.rag.embed import GoogleEmbeddingProvider, get_embedding_provider, search
-from ia_agents.rag.preprocess import build_chunks, clean_text
+from ia_agents.rag.preprocess import build_chunks
 
 
 CORPUS_PATH = Path(__file__).with_name("test_corpus.txt")
@@ -27,7 +27,7 @@ class IngestionLabTests(unittest.TestCase):
     def _check_corpus_ingestion(self, strategy):
         raw_text = CORPUS_PATH.read_text(encoding="utf-8")
         self.assertTrue(9_000 <= len(raw_text) <= 11_000)
-        text = clean_text(raw_text)
+        text = raw_text.strip()
         document_id = "charly-garcia-career"
 
         # 1,000 characters retain several sentences of biographical context.

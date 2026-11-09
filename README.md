@@ -63,7 +63,7 @@ that query; configuration-only commands save them for future calls.
 - `src/ia_agents/cli.py`: chat client argument parsing and command workflow.
 - `src/ia_agents/llm/`: client, providers, responses and persistence.
 - `src/ia_agents/rag/`: retrieval pipeline.
-  - `preprocess.py`: text cleaning and chunking (no provider or network).
+  - `preprocess.py`: text chunking (no provider or network).
   - `embed.py`: embedding providers and semantic search.
   - `ingest_cli.py` and `retrieve_cli.py`: the `ingest` and `retrieve` commands.
 - `src/ia_agents/schemas/`: Pydantic data models.
@@ -71,6 +71,8 @@ that query; configuration-only commands save them for future calls.
 - `clases/clase2/` and `clases/clase3/`: original course material.
 - `data/`: local runtime state.
 - `scripts/install-client.sh`: reinstall the command in `.venv`.
+- `scripts/clean_mdn_corpus.py`: clean `corpus/` into `data/corpus_clean/` (front matter, MDN macros, HTML tables, links; code blocks untouched). Re-run it after changing a rule: `python scripts/clean_mdn_corpus.py`.
+- `corpus/`: the MDN JavaScript Guide (Markdown), from the MDN content repository, licensed CC-BY-SA 2.5.
 
 Import the client from Python:
 

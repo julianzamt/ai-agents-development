@@ -9,7 +9,7 @@ import chromadb
 from chromadb.errors import NotFoundError
 
 from .embed import collection_embedding, embedding_metadata, get_embedding_provider
-from .preprocess import build_chunks, clean_text
+from .preprocess import build_chunks
 
 
 def format_chunks_report(chunks, settings: str) -> str:
@@ -66,11 +66,11 @@ def main(argv=None):
     if args.strategy == "paragraphs" and args.max_chars <= 0:
         parser.error("max-chars must be greater than zero.")
     try:
-        text = clean_text(args.input.read_text(encoding="utf-8"))
+        text = args.input.read_text(encoding="utf-8").strip()
     except (OSError, UnicodeError) as exc:
         parser.error(str(exc))
     if not text:
-        parser.error("Input contains no text after cleaning.")
+        parser.error("Input contains no text.")
 
     chunks = build_chunks(
         text, document_id=args.document_id or args.input.stem,

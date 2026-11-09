@@ -1,14 +1,11 @@
-"""Cleaning and chunking tests; no embedding provider involved."""
+"""Chunking tests; no embedding provider involved."""
 
 import unittest
 
-from ia_agents.rag.preprocess import build_chunks, clean_text
+from ia_agents.rag.preprocess import build_chunks
 
 
 class PreprocessTests(unittest.TestCase):
-    def test_clean_text_normalizes_unicode_and_whitespace(self):
-        self.assertEqual(clean_text("  Ｆｕｌｌ  width\t\ttext\n\n\n\nNext  "), "Full width text\n\nNext")
-
     def test_unknown_strategy(self):
         with self.assertRaisesRegex(ValueError, "Unknown chunking strategy"):
             build_chunks("text", "doc", "source", strategy="unknown")
