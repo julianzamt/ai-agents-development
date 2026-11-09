@@ -100,7 +100,7 @@ or `VOYAGE_EMBEDDING_MODEL_ID`. Google uses separate document and query embeddin
 formats recommended for retrieval by the selected Gemini embedding model. Voyage
 (`VOYAGE_API_KEY`, default model `voyage-4`) is used for embeddings only, not as an
 `LLM_PROVIDER`; it marks inputs as `document` or `query`, and ingestion sends them in
-batches of 128.
+batches of 128 (Google: batches of 100, the API maximum).
 Refresh the editable installation to register the separate `chunk`, `ingest` and `retrieve` commands:
 
 ```bash

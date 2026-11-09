@@ -37,6 +37,8 @@ def _google_document_text(title: str | None, text: str) -> str:
 
 class GoogleEmbeddingProvider:
     name = "google"
+    # A BatchEmbedContents request accepts at most 100 inputs (the API answers 400 above that).
+    batch_size = 100
 
     def __init__(self, model: str | None = None) -> None:
         self.model = model or os.environ.get("GOOGLE_EMBEDDING_MODEL_ID", "gemini-embedding-2")
@@ -68,12 +70,15 @@ class GoogleEmbeddingProvider:
             config = types.EmbedContentConfig(
                 task_type="RETRIEVAL_QUERY" if purpose == "query" else "RETRIEVAL_DOCUMENT"
             )
-        response = self.client.models.embed_content(
-            model=self.model,
-            contents=contents,
-            **({"config": config} if config is not None else {}),
-        )
-        return [embedding.values for embedding in response.embeddings]
+        vectors: list[list[float]] = []
+        for start in range(0, len(contents), self.batch_size):
+            response = self.client.models.embed_content(
+                model=self.model,
+                contents=contents[start:start + self.batch_size],
+                **({"config": config} if config is not None else {}),
+            )
+            vectors.extend(embedding.values for embedding in response.embeddings)
+        return vectors
 
     def embed_documents(self, texts: list[str], titles: list[str | None] | None = None) -> list[list[float]]:
         return self._embed(texts, "document", titles=titles)

@@ -322,6 +322,24 @@ class GoogleDocumentFormatTests(unittest.TestCase):
             "title: none | text: Intro paragraph.",
         ])
 
+    def test_inputs_are_sent_in_batches_of_at_most_100_and_keep_their_order(self):
+        texts = [f"t{i}" for i in range(250)]
+
+        def respond(model, contents, **kwargs):
+            # Echo each input's number back as its vector so the order can be checked.
+            numbers = [int(c.parts[0].text.split("text: t")[1]) for c in _transformers.t_contents(contents)]
+            return SimpleNamespace(embeddings=[SimpleNamespace(values=[float(n)]) for n in numbers])
+
+        with patch.dict("os.environ", {
+            "GOOGLE_API_KEY": "offline-test-key", "GOOGLE_EMBEDDING_MODEL_ID": "gemini-embedding-2",
+        }), patch("ia_agents.rag.embed.genai.Client"):
+            provider = GoogleEmbeddingProvider()
+            provider.client.models.embed_content.side_effect = respond
+            vectors = provider.embed_documents(texts)
+            calls = provider.client.models.embed_content.call_args_list
+        self.assertEqual([len(call.kwargs["contents"]) for call in calls], [100, 100, 50])
+        self.assertEqual(vectors, [[float(i)] for i in range(250)])
+
 
 if __name__ == "__main__":
     unittest.main()
