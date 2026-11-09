@@ -9,8 +9,10 @@ data/*.json
 # Local ChromaDB persistence
 chroma_db/
 
-# Chunk dumps from ingest --dry-run
+# Chunk reports from the chunk command
 *.chunks.txt
+# ...except the committed corpus report
+!corpus/*.chunks.txt
 
 *.egg-info/
 build/

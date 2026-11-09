@@ -1,6 +1,7 @@
 """Exercise the ingestion command without external API calls."""
 
 import io
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
@@ -91,6 +92,16 @@ class IngestCliTests(unittest.TestCase):
                     name="documents", metadata=EMBEDDING,
                 )
 
+    def test_dry_run_flags_moved_to_the_chunk_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "corpus.txt"
+            source.write_text("A document.", encoding="utf-8")
+            for flag in (["--dry-run"], ["--dump-file", str(Path(directory) / "x.txt")]):
+                with self.subTest(flag=flag), patch("ia_agents.rag.ingest_cli.get_embedding_provider") as get_provider:
+                    with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                        main([str(source), *flag])
+                    get_provider.assert_not_called()
+
     def test_invalid_input_does_not_create_a_provider(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "empty.txt"
@@ -124,47 +135,6 @@ class IngestCliTests(unittest.TestCase):
             collection = chromadb.PersistentClient(path=str(persistence)).get_collection("documents")
             self.assertEqual(collection.count(), 1)
 
-    def test_dry_run_writes_readable_report_without_embedding_or_storing(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            source = root / "corpus.txt"
-            source.write_text("1. First\n\nAlpha paragraph.\n\n2. Second\n\nBeta paragraph.", encoding="utf-8")
-            dump = root / "out" / "chunks.txt"
-            persistence = root / "db"
-            stdout = io.StringIO()
-            with patch("ia_agents.rag.ingest_cli.get_embedding_provider") as get_provider, \
-                    patch("ia_agents.rag.ingest_cli.chromadb.PersistentClient") as client_class, \
-                    redirect_stdout(stdout):
-                main([str(source), "--dry-run", "--dump-file", str(dump), "--strategy", "paragraphs",
-                      "--document-id", "example", "--persist-directory", str(persistence)])
-            get_provider.assert_not_called()
-            client_class.assert_not_called()
-            self.assertFalse(persistence.exists())
-            self.assertIn("nothing embedded", stdout.getvalue())
-            report = dump.read_text(encoding="utf-8")
-            self.assertIn("Chunks: 2", report)
-            self.assertIn("Characters per chunk: min=", report)
-            self.assertIn("section_01 | First: 1", report)
-            self.assertIn("Alpha paragraph.", report)
-            self.assertIn("Beta paragraph.", report)
-
-    def test_dry_run_defaults_dump_file_to_document_id_in_cwd(self):
-        with tempfile.TemporaryDirectory() as directory:
-            source = Path(directory) / "corpus.txt"
-            source.write_text("A document.", encoding="utf-8")
-            with patch("ia_agents.rag.ingest_cli.Path", wraps=Path) as path_class, redirect_stdout(io.StringIO()):
-                target = Path(directory) / "corpus.chunks.txt"
-                path_class.side_effect = lambda value=".": target if value == "corpus.chunks.txt" else Path(value)
-                main([str(source), "--dry-run"])
-            self.assertIn("A document.", target.read_text(encoding="utf-8"))
-
-    def test_dump_file_requires_dry_run(self):
-        with tempfile.TemporaryDirectory() as directory:
-            source = Path(directory) / "corpus.txt"
-            source.write_text("A document.", encoding="utf-8")
-            with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-                main([str(source), "--dump-file", str(Path(directory) / "x.txt")])
-
     def test_rejects_collection_from_a_different_embedding_before_embedding(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "input.txt"
@@ -193,6 +163,66 @@ class IngestCliTests(unittest.TestCase):
                 main([str(source), "--persist-directory", str(persistence)])
             self.assertIn("does not record its embedding", stderr.getvalue())
             provider.embed_documents.assert_not_called()
+
+
+    def make_corpus(self, root: Path) -> Path:
+        corpus = root / "corpus"
+        for name, slug, body in (("a", "Guide/A", "## One\n\nAlpha text."), ("b/c", "Guide/B", "## Two\n\nBeta text.")):
+            path = corpus / name / "index.md"
+            path.parent.mkdir(parents=True)
+            path.write_text(f"---\ntitle: {name}\nslug: {slug}\n---\n\n{body}", encoding="utf-8")
+        (corpus / "image.svg").write_text("<svg/>", encoding="utf-8")
+        return corpus
+
+    def test_directory_mode_embeds_all_files_in_one_call(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            corpus, persistence = self.make_corpus(root), root / "db"
+            (corpus / "empty.md").write_text(" \n", encoding="utf-8")
+            provider, stdout, stderr = fake_provider(), io.StringIO(), io.StringIO()
+            with patch_provider(provider), redirect_stdout(stdout), redirect_stderr(stderr):
+                main([str(corpus), "--persist-directory", str(persistence)])
+            provider.embed_documents.assert_called_once()
+            stored = chromadb.PersistentClient(path=str(persistence)).get_collection("documents").get(include=["metadatas"])
+            self.assertEqual({m["document_id"] for m in stored["metadatas"]}, {"Guide/A", "Guide/B"})
+            self.assertEqual({Path(m["source"]).name for m in stored["metadatas"]}, {"index.md"})
+            self.assertEqual(len(stored["ids"]), 2)
+            self.assertIn("from 2 files", stdout.getvalue())
+            self.assertIn("Skipping empty file", stderr.getvalue())
+
+    def test_directory_mode_uses_relative_path_when_there_is_no_slug(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            corpus = root / "docs"
+            (corpus / "sub").mkdir(parents=True)
+            (corpus / "sub" / "notes.txt").write_text("Some notes.", encoding="utf-8")
+            persistence = root / "db"
+            with patch_provider(fake_provider()), redirect_stdout(io.StringIO()):
+                main([str(corpus), "--persist-directory", str(persistence)])
+            stored = chromadb.PersistentClient(path=str(persistence)).get_collection("documents").get(include=["metadatas"])
+            self.assertEqual(stored["metadatas"][0]["document_id"], "sub/notes")
+
+    def test_directory_mode_rejects_bad_input_before_creating_a_provider(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            corpus = self.make_corpus(root)
+            empty = root / "empty_dir"
+            empty.mkdir()
+            duplicate = root / "dup"
+            duplicate.mkdir()
+            for name in ("one.md", "two.md"):
+                (duplicate / name).write_text("---\nslug: Same\n---\n\ntext", encoding="utf-8")
+            cases = {
+                "document-id": [str(corpus), "--document-id", "x"],
+                "source": [str(corpus), "--source", "x"],
+                "no files": [str(empty)],
+                "duplicate id": [str(duplicate)],
+            }
+            for label, argv in cases.items():
+                with self.subTest(label), patch("ia_agents.rag.ingest_cli.get_embedding_provider") as get_provider:
+                    with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                        main(argv)
+                    get_provider.assert_not_called()
 
 
 if __name__ == "__main__":

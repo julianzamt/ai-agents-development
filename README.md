@@ -65,7 +65,7 @@ that query; configuration-only commands save them for future calls.
 - `src/ia_agents/rag/`: retrieval pipeline.
   - `preprocess.py`: text chunking (no provider or network).
   - `embed.py`: embedding providers and semantic search.
-  - `ingest_cli.py` and `retrieve_cli.py`: the `ingest` and `retrieve` commands.
+  - `chunk_cli.py`, `ingest_cli.py` and `retrieve_cli.py`: the `chunk`, `ingest` and `retrieve` commands.
 - `src/ia_agents/schemas/`: Pydantic data models.
 - `tests/`: offline tests without real API calls.
 - `clases/clase2/` and `clases/clase3/`: original course material.
@@ -101,7 +101,7 @@ formats recommended for retrieval by the selected Gemini embedding model. Voyage
 (`VOYAGE_API_KEY`, default model `voyage-4`) is used for embeddings only, not as an
 `LLM_PROVIDER`; it marks inputs as `document` or `query`, and ingestion sends them in
 batches of 128.
-Refresh the editable installation to register the separate `ingest` command:
+Refresh the editable installation to register the separate `chunk`, `ingest` and `retrieve` commands:
 
 ```bash
 python3 -m pip install -e .
@@ -109,12 +109,24 @@ ingest tests/test_corpus.txt --strategy paragraphs --max-chars 1000 --persist-di
 ```
 
 Alternatively, run `python3 -m ia_agents.rag.ingest_cli` with the same arguments.
+
+To see what would be embedded without calling any provider or touching ChromaDB, run
+`chunk` with the same input and chunking options: `chunk corpus/clean` writes a readable
+report (settings, size statistics, every chunk) to `corpus/clean.chunks.txt`, next to the
+directory (the committed report for the corpus; run it from the repository root and commit
+the result after changing a cleaning or chunking rule). For a single file it writes
+`<document-id>.chunks.txt` in the current directory. Use `--output FILE` to choose the path or
+`--stdout` to print it. `ingest` runs the same chunking, then embeds and stores.
+
 The default strategy, `markdown`, is for Markdown such as `corpus/clean/`: it splits at
 `##` and `###` headings, prefixes every chunk with its heading path (`Title > H2 > H3`),
 never cuts a code fence or table, and merges tiny sections into a neighbour
 (`--min-chars 300`, `--target-chars 1200`, `--max-chars 2000`). The front matter `slug`
 becomes the document ID. Ingest one file at a time, for example
-`ingest corpus/clean/closures/index.md`. Plain text uses `--strategy paragraphs` or
+`ingest corpus/clean/closures/index.md`, or pass a directory to ingest every `.md` and
+`.txt` file under it in one run, for example
+`ingest corpus/clean --persist-directory data/chroma_db --collection mdn` (`--document-id` and
+`--source` apply to single files only). Plain text uses `--strategy paragraphs` or
 `--strategy characters --chunk-size 1000 --overlap 150`.
 Add `--print-chunks` to inspect the chunks. `--document-id` and `--source` override
 the metadata defaults (input stem and input path). Paragraphs larger than

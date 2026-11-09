@@ -11,6 +11,7 @@ dynamic = ["dependencies"]
 
 [project.scripts]
 client = "ia_agents.cli:main"
+chunk = "ia_agents.rag.chunk_cli:main"
 ingest = "ia_agents.rag.ingest_cli:main"
 retrieve = "ia_agents.rag.retrieve_cli:main"
 

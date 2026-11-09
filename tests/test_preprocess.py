@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ia_agents.rag import ingest_cli
+from ia_agents.rag import chunk_cli
 from ia_agents.rag.preprocess import build_chunks, chunk_by_markdown, parse_front_matter
 
 CLEAN_CORPUS = Path(__file__).resolve().parent.parent / "corpus" / "clean"
@@ -162,12 +162,12 @@ class MarkdownChunkingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "min_chars <= target_chars <= max_chars"):
             build_chunks(text, "doc", "src", strategy="markdown", max_chars=100, target_chars=450)
 
-    def test_ingest_uses_the_front_matter_slug_as_document_id(self):
+    def test_chunk_command_uses_the_front_matter_slug_as_document_id(self):
         with tempfile.TemporaryDirectory() as tmp:
             source, dump = Path(tmp, "index.md"), Path(tmp, "out.txt")
             source.write_text("---\ntitle: T\nslug: Web/Guide/T\n---\n\n## One\n\nhello world", encoding="utf-8")
             with contextlib.redirect_stdout(io.StringIO()):
-                ingest_cli.main([str(source), "--dry-run", "--dump-file", str(dump)])
+                chunk_cli.main([str(source), "--output", str(dump)])
             report = dump.read_text(encoding="utf-8")
         self.assertIn("Web/Guide/T-000-", report)
         self.assertIn("strategy=markdown", report)
