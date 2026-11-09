@@ -298,5 +298,30 @@ class IngestionLabTests(unittest.TestCase):
 
 
 
+class GoogleDocumentFormatTests(unittest.TestCase):
+    def embed(self, texts, titles):
+        response = SimpleNamespace(embeddings=[SimpleNamespace(values=[0.0, 1.0]) for _ in texts])
+        with patch.dict("os.environ", {
+            "GOOGLE_API_KEY": "offline-test-key", "GOOGLE_EMBEDDING_MODEL_ID": "gemini-embedding-2",
+        }), patch("ia_agents.rag.embed.genai.Client"):
+            provider = GoogleEmbeddingProvider()
+            provider.client.models.embed_content.return_value = response
+            provider.embed_documents(texts, titles=titles)
+            contents = provider.client.models.embed_content.call_args.kwargs["contents"]
+            return [content.parts[0].text for content in _transformers.t_contents(contents)]
+
+    def test_heading_path_prefix_is_not_repeated_in_the_text_slot(self):
+        sent = self.embed(
+            ["Closures > Lexical scoping\n\nBody text.", "Plain chunk", "Other\n\nBody", "Intro paragraph."],
+            ["Closures > Lexical scoping", "Document", "Unrelated", None],
+        )
+        self.assertEqual(sent, [
+            "title: Closures > Lexical scoping | text: Body text.",
+            "title: Document | text: Plain chunk",  # text without the title prefix is untouched
+            "title: Unrelated | text: Other\n\nBody",  # a different first line is not a title prefix
+            "title: none | text: Intro paragraph.",
+        ])
+
+
 if __name__ == "__main__":
     unittest.main()

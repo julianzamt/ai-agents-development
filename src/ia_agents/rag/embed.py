@@ -23,6 +23,18 @@ class EmbeddingProvider(Protocol):
     def embed_queries(self, texts: list[str]) -> list[list[float]]: ...
 
 
+def _google_document_text(title: str | None, text: str) -> str:
+    """Format a document for gemini-embedding-2: `title: <title> | text: <text>`.
+
+    Markdown chunks already start with their heading path (`<title>\n\n<body>`), which is
+    the title. The title slot carries it, so it is not repeated in the text slot.
+    """
+    prefix = f"{title}\n\n" if title else ""
+    if prefix and text.startswith(prefix):
+        text = text[len(prefix):]
+    return f"title: {title or 'none'} | text: {text}"
+
+
 class GoogleEmbeddingProvider:
     name = "google"
 
@@ -44,7 +56,7 @@ class GoogleEmbeddingProvider:
                     raise ValueError("Provide one document title per text.")
                 document_titles = titles or [None] * len(texts)
                 contents = [
-                    types.Content(parts=[types.Part(text=f"title: {title or 'none'} | text: {text}")])
+                    types.Content(parts=[types.Part(text=_google_document_text(title, text))])
                     for text, title in zip(texts, document_titles)
                 ]
             config = None
