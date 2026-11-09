@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import chromadb
 
-from ia_agents.retrieve_cli import main
+from ia_agents.rag.retrieve_cli import main
 
 
 def make_collection(directory, metadata=None):
@@ -25,7 +25,7 @@ class RetrieveCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             make_collection(directory, {"embedding_provider": "voyage", "embedding_model": "voyage-4"})
             stdout = io.StringIO()
-            with patch("ia_agents.retrieve_cli.search", return_value=[[{
+            with patch("ia_agents.rag.retrieve_cli.search", return_value=[[{
                 "chunk_id": "a", "text": "Alpha text.", "distance": 0.1,
                 "metadata": {"section_id": "section_01", "section_title": "One"},
             }]]) as search, redirect_stdout(stdout):
@@ -39,7 +39,7 @@ class RetrieveCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             make_collection(directory)
             stderr = io.StringIO()
-            with patch("ia_agents.retrieve_cli.search") as search, \
+            with patch("ia_agents.rag.retrieve_cli.search") as search, \
                     redirect_stderr(stderr), self.assertRaises(SystemExit):
                 main(["question", "--persist-directory", directory])
             self.assertIn("does not record its embedding", stderr.getvalue())

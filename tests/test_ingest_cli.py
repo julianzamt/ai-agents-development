@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 import chromadb
 from chromadb.errors import NotFoundError
 
-from ia_agents.ingest_cli import main
+from ia_agents.rag.ingest_cli import main
 
 EMBEDDING = {"embedding_provider": "google", "embedding_model": "test-model"}
 
@@ -29,7 +29,7 @@ def fake_provider(vectors=None, name="google", model="test-model"):
 
 
 def patch_provider(provider):
-    return patch("ia_agents.ingest_cli.get_embedding_provider", return_value=provider)
+    return patch("ia_agents.rag.ingest_cli.get_embedding_provider", return_value=provider)
 
 
 class IngestCliTests(unittest.TestCase):
@@ -78,9 +78,9 @@ class IngestCliTests(unittest.TestCase):
             source = Path(directory) / "corpus.txt"
             source.write_text("A document.", encoding="utf-8")
             persistence = Path(directory) / "chroma_db"
-            with patch("ia_agents.ingest_cli.Path", wraps=Path) as path_class, \
+            with patch("ia_agents.rag.ingest_cli.Path", wraps=Path) as path_class, \
                     patch_provider(fake_provider([[1.0, 0.0]])), \
-                    patch("ia_agents.ingest_cli.chromadb.PersistentClient") as client_class, \
+                    patch("ia_agents.rag.ingest_cli.chromadb.PersistentClient") as client_class, \
                     redirect_stdout(io.StringIO()):
                 client_class.return_value.get_collection.side_effect = NotFoundError("missing")
                 # Exercise parser defaults while redirecting the relative default to a temp folder.
@@ -96,7 +96,7 @@ class IngestCliTests(unittest.TestCase):
             source = Path(directory) / "empty.txt"
             source.write_text(" \n\t", encoding="utf-8")
             for extra in ([], ["--overlap", "300"], ["--strategy", "paragraphs", "--max-chars", "0"]):
-                with self.subTest(extra=extra), patch("ia_agents.ingest_cli.get_embedding_provider") as get_provider:
+                with self.subTest(extra=extra), patch("ia_agents.rag.ingest_cli.get_embedding_provider") as get_provider:
                     with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                         main([str(source), *extra])
                     get_provider.assert_not_called()
@@ -132,8 +132,8 @@ class IngestCliTests(unittest.TestCase):
             dump = root / "out" / "chunks.txt"
             persistence = root / "db"
             stdout = io.StringIO()
-            with patch("ia_agents.ingest_cli.get_embedding_provider") as get_provider, \
-                    patch("ia_agents.ingest_cli.chromadb.PersistentClient") as client_class, \
+            with patch("ia_agents.rag.ingest_cli.get_embedding_provider") as get_provider, \
+                    patch("ia_agents.rag.ingest_cli.chromadb.PersistentClient") as client_class, \
                     redirect_stdout(stdout):
                 main([str(source), "--dry-run", "--dump-file", str(dump), "--strategy", "paragraphs",
                       "--document-id", "example", "--persist-directory", str(persistence)])
@@ -152,7 +152,7 @@ class IngestCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "corpus.txt"
             source.write_text("A document.", encoding="utf-8")
-            with patch("ia_agents.ingest_cli.Path", wraps=Path) as path_class, redirect_stdout(io.StringIO()):
+            with patch("ia_agents.rag.ingest_cli.Path", wraps=Path) as path_class, redirect_stdout(io.StringIO()):
                 target = Path(directory) / "corpus.chunks.txt"
                 path_class.side_effect = lambda value=".": target if value == "corpus.chunks.txt" else Path(value)
                 main([str(source), "--dry-run"])

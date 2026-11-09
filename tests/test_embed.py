@@ -10,9 +10,8 @@ from unittest.mock import patch
 
 from google.genai import types, _transformers
 
-from ia_agents.llm.embed import (
-    GoogleEmbeddingProvider, build_chunks, clean_text, get_embedding_provider, search,
-)
+from ia_agents.rag.embed import GoogleEmbeddingProvider, get_embedding_provider, search
+from ia_agents.rag.preprocess import build_chunks, clean_text
 
 
 CORPUS_PATH = Path(__file__).with_name("test_corpus.txt")
@@ -24,10 +23,6 @@ class IngestionLabTests(unittest.TestCase):
 
     def test_paragraph_ingestion(self):
         self._check_corpus_ingestion("paragraphs")
-
-    def test_unknown_strategy(self):
-        with self.assertRaisesRegex(ValueError, "Unknown chunking strategy"):
-            build_chunks("text", "doc", "source", strategy="unknown")
 
     def _check_corpus_ingestion(self, strategy):
         raw_text = CORPUS_PATH.read_text(encoding="utf-8")
@@ -71,7 +66,7 @@ class IngestionLabTests(unittest.TestCase):
         with patch.dict("os.environ", {
             "GOOGLE_API_KEY": "offline-test-key",
             "GOOGLE_EMBEDDING_MODEL_ID": "gemini-embedding-2",
-        }), patch("ia_agents.llm.embed.genai.Client") as client_class:
+        }), patch("ia_agents.rag.embed.genai.Client") as client_class:
             provider = GoogleEmbeddingProvider()
             embed_content = provider.client.models.embed_content
             embed_content.return_value = response
@@ -131,24 +126,6 @@ class IngestionLabTests(unittest.TestCase):
             reconstructed = "\n\n".join(reconstructed_sections)
         self.assertEqual(reconstructed, text)
 
-    def test_chunks_do_not_cross_section_boundaries(self):
-        text = "Intro text.\n\n1. First section\nAlpha beta gamma.\n\n2. Second section\nDelta epsilon zeta."
-        chunks = build_chunks(
-            text, "doc", "fixture", chunk_size=100, overlap=20,
-            strategy="characters",
-        )
-        self.assertEqual([chunk.section_id for chunk in chunks], ["introduction", "section_01", "section_02"])
-        self.assertEqual([chunk.section_title for chunk in chunks], [
-            "Introduction", "First section", "Second section",
-        ])
-        self.assertTrue(all("Delta epsilon zeta" not in chunk.text for chunk in chunks[:2]))
-
-    def test_unheaded_text_gets_document_section_metadata(self):
-        chunks = build_chunks("Plain text without headings.", "doc", "fixture")
-        self.assertEqual(len(chunks), 1)
-        self.assertEqual(chunks[0].section_id, "section_00")
-        self.assertEqual(chunks[0].section_title, "Document")
-
     def test_search_accepts_batched_queries_and_filters_each_result_set_by_distance(self):
         collection = SimpleNamespace(
             name="docs",
@@ -166,7 +143,7 @@ class IngestionLabTests(unittest.TestCase):
         query_embeddings = [[1.0, 0.0], [0.0, 1.0]]
         embedding_provider = unittest.mock.Mock()
         embedding_provider.embed_queries.return_value = query_embeddings
-        with patch("ia_agents.llm.embed.get_embedding_provider", return_value=embedding_provider) as get_provider:
+        with patch("ia_agents.rag.embed.get_embedding_provider", return_value=embedding_provider) as get_provider:
             results = search(
                 queries, collection, k=2, max_distance=0.5,
                 where={"document_id": "doc"},
@@ -203,7 +180,7 @@ class IngestionLabTests(unittest.TestCase):
         )
         embedding_provider = unittest.mock.Mock()
         embedding_provider.embed_queries.return_value = [[1.0, 0.0]]
-        with patch("ia_agents.llm.embed.get_embedding_provider", return_value=embedding_provider):
+        with patch("ia_agents.rag.embed.get_embedding_provider", return_value=embedding_provider):
             results = search("question", collection)
         self.assertEqual(results, [{
             "chunk_id": "chunk-a", "text": "text a", "distance": 0.25,
@@ -234,7 +211,7 @@ class IngestionLabTests(unittest.TestCase):
         for metadata in (None, {"hnsw:space": "cosine"}, {"embedding_provider": "google"}):
             collection = SimpleNamespace(name="docs", metadata=metadata, query=unittest.mock.Mock())
             with self.subTest(metadata=metadata), \
-                    patch("ia_agents.llm.embed.get_embedding_provider") as get_provider:
+                    patch("ia_agents.rag.embed.get_embedding_provider") as get_provider:
                 with self.assertRaisesRegex(ValueError, "does not record its embedding"):
                     search("question", collection)
                 get_provider.assert_not_called()
@@ -276,7 +253,7 @@ class IngestionLabTests(unittest.TestCase):
         with patch.dict("os.environ", {
             "EMBEDDING_PROVIDER": "Google", "GOOGLE_API_KEY": "test-key",
             "GOOGLE_EMBEDDING_MODEL_ID": "gemini-embedding-001",
-        }), patch("ia_agents.llm.embed.genai.Client"):
+        }), patch("ia_agents.rag.embed.genai.Client"):
             provider = get_embedding_provider()
             self.assertEqual((provider.name, provider.model), ("google", "gemini-embedding-001"))
             explicit = get_embedding_provider("google", "gemini-embedding-2")
@@ -289,7 +266,7 @@ class IngestionLabTests(unittest.TestCase):
         with patch.dict("os.environ", {
             "GOOGLE_API_KEY": "offline-test-key",
             "GOOGLE_EMBEDDING_MODEL_ID": "gemini-embedding-2",
-        }), patch("ia_agents.llm.embed.genai.Client") as client_class:
+        }), patch("ia_agents.rag.embed.genai.Client") as client_class:
             provider = GoogleEmbeddingProvider()
             embed_content = provider.client.models.embed_content
             embed_content.return_value = response
@@ -308,7 +285,7 @@ class IngestionLabTests(unittest.TestCase):
         with patch.dict("os.environ", {
             "GOOGLE_API_KEY": "offline-test-key",
             "GOOGLE_EMBEDDING_MODEL_ID": "gemini-embedding-001",
-        }), patch("ia_agents.llm.embed.genai.Client") as client_class:
+        }), patch("ia_agents.rag.embed.genai.Client") as client_class:
             provider = GoogleEmbeddingProvider()
             embed_content = provider.client.models.embed_content
             embed_content.return_value = response

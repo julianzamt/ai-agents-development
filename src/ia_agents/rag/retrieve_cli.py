@@ -5,7 +5,7 @@ from pathlib import Path
 
 import chromadb
 
-from .llm.embed import collection_embedding, search
+from .embed import collection_embedding, search
 
 
 def main(argv=None):

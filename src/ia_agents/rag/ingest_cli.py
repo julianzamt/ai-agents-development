@@ -8,9 +8,8 @@ from pathlib import Path
 import chromadb
 from chromadb.errors import NotFoundError
 
-from .llm.embed import (
-    build_chunks, clean_text, collection_embedding, embedding_metadata, get_embedding_provider,
-)
+from .embed import collection_embedding, embedding_metadata, get_embedding_provider
+from .preprocess import build_chunks, clean_text
 
 
 def format_chunks_report(chunks, settings: str) -> str:

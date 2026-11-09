@@ -60,8 +60,12 @@ that query; configuration-only commands save them for future calls.
 
 ## Organization
 
-- `src/ia_agents/cli.py`: argument parsing and command workflow.
+- `src/ia_agents/cli.py`: chat client argument parsing and command workflow.
 - `src/ia_agents/llm/`: client, providers, responses and persistence.
+- `src/ia_agents/rag/`: retrieval pipeline.
+  - `preprocess.py`: text cleaning and chunking (no provider or network).
+  - `embed.py`: embedding providers and semantic search.
+  - `ingest_cli.py` and `retrieve_cli.py`: the `ingest` and `retrieve` commands.
 - `src/ia_agents/schemas/`: Pydantic data models.
 - `tests/`: offline tests without real API calls.
 - `clases/clase2/` and `clases/clase3/`: original course material.
@@ -102,7 +106,7 @@ python3 -m pip install -e .
 ingest tests/test_corpus.txt --strategy paragraphs --max-chars 1000 --persist-directory data/chroma_db --collection charly
 ```
 
-Alternatively, run `python3 -m ia_agents.ingest_cli` with the same arguments.
+Alternatively, run `python3 -m ia_agents.rag.ingest_cli` with the same arguments.
 Character chunking uses `--strategy characters --chunk-size 1000 --overlap 150`.
 Add `--print-chunks` to inspect the chunks. `--document-id` and `--source` override
 the metadata defaults (input stem and input path). Paragraphs larger than
@@ -127,7 +131,7 @@ retrieve "Who were the members of Serú Girán?" "Which album began the solo per
 The command prints each match's Chroma distance, chunk ID, section metadata, and
 text. Use `--section section_04` or `--document-id charly` to filter by metadata,
 and `--max-distance` to hide matches beyond a distance threshold. You can also
-run it as `python3 -m ia_agents.retrieve_cli`.
+run it as `python3 -m ia_agents.rag.retrieve_cli`.
 
 ## Tests
 
