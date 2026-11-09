@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Clean the MDN JavaScript Guide Markdown in corpus/ and write it to data/corpus_clean/.
+"""Clean the MDN JavaScript Guide Markdown in corpus/raw/ and write it to corpus/clean/.
 
 Fenced code blocks are copied byte for byte; every rule applies to prose only, and
 inline code spans are masked while rules run. Only .md files are written (images
 carry no text).
 
-Usage: python scripts/clean_mdn_corpus.py [--src corpus] [--dst data/corpus_clean]
+Usage: python scripts/clean_mdn_corpus.py [--src corpus/raw] [--dst corpus/clean]
 """
 
 import argparse
@@ -268,8 +268,8 @@ def code_blocks(text: str) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--src", type=Path, default=ROOT / "corpus")
-    parser.add_argument("--dst", type=Path, default=ROOT / "data" / "corpus_clean")
+    parser.add_argument("--src", type=Path, default=ROOT / "corpus" / "raw")
+    parser.add_argument("--dst", type=Path, default=ROOT / "corpus" / "clean")
     args = parser.parse_args(argv)
 
     files = sorted(args.src.rglob("*.md"))

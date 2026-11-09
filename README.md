@@ -71,8 +71,8 @@ that query; configuration-only commands save them for future calls.
 - `clases/clase2/` and `clases/clase3/`: original course material.
 - `data/`: local runtime state.
 - `scripts/install-client.sh`: reinstall the command in `.venv`.
-- `scripts/clean_mdn_corpus.py`: clean `corpus/` into `data/corpus_clean/` (front matter, MDN macros, HTML tables, links; code blocks untouched). Re-run it after changing a rule: `python scripts/clean_mdn_corpus.py`.
-- `corpus/`: the MDN JavaScript Guide (Markdown), from the MDN content repository, licensed CC-BY-SA 2.5.
+- `scripts/clean_mdn_corpus.py`: clean `corpus/raw/` into `corpus/clean/` (front matter, MDN macros, HTML tables, links; code blocks untouched). Re-run it after changing a rule: `python scripts/clean_mdn_corpus.py`.
+- `corpus/raw/`: the MDN JavaScript Guide (Markdown), from the MDN content repository, licensed CC-BY-SA 2.5. `corpus/clean/` is the generated, cleaned copy that gets embedded.
 
 Import the client from Python:
 
