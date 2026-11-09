@@ -107,8 +107,12 @@ the metadata defaults (input stem and input path). Paragraphs larger than
 and stores chunk text, IDs, metadata, and embeddings in the local ChromaDB collection. The
 default persistence directory is `./chroma_db` and the default collection is
 `documents`; repeated ingestion upserts chunks by their deterministic IDs.
-Keep the provider and model consistent between ingestion and search; changing
-embedding spaces requires re-embedding the collection.
+A new collection records the embedding provider and model in its metadata
+(`embedding_provider`, `embedding_model`). Ingesting into an existing collection
+with a different provider or model fails before any embedding call; use a new
+`--collection` instead. Search always embeds queries with the recorded provider and
+model, whatever `EMBEDDING_PROVIDER` is set to. Collections created before this
+was recorded are rejected by both commands; re-ingest them into a new collection.
 
 Inspect retrieval by passing one or more queries to `retrieve`:
 

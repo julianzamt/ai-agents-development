@@ -5,11 +5,31 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import chromadb
+from chromadb.errors import NotFoundError
 
 from ia_agents.ingest_cli import main
+
+EMBEDDING = {"embedding_provider": "google", "embedding_model": "test-model"}
+
+
+def fake_provider(vectors=None, name="google", model="test-model"):
+    """An embedding provider double; by default it returns one vector per text."""
+    provider = Mock()
+    provider.name, provider.model = name, model
+    if vectors is None:
+        provider.embed_documents.side_effect = lambda texts, titles=None: [
+            [float(i), 0.5] for i, _ in enumerate(texts)
+        ]
+    else:
+        provider.embed_documents.return_value = vectors
+    return provider
+
+
+def patch_provider(provider):
+    return patch("ia_agents.ingest_cli.get_embedding_provider", return_value=provider)
 
 
 class IngestCliTests(unittest.TestCase):
@@ -21,19 +41,18 @@ class IngestCliTests(unittest.TestCase):
                 source.write_text("  First  paragraph.\n\nSecond paragraph.  ", encoding="utf-8")
                 persistence = root / "nested" / "chroma_db"
                 stdout = io.StringIO()
-                with patch("ia_agents.ingest_cli.embed_documents") as embed, redirect_stdout(stdout):
-                    embed.side_effect = lambda texts, titles=None: [
-                        [float(i), 0.5] for i, _ in enumerate(texts)
-                    ]
+                provider = fake_provider()
+                with patch_provider(provider), redirect_stdout(stdout):
                     main([str(source), "--persist-directory", str(persistence), "--strategy", strategy,
                           "--chunk-size", "24", "--overlap", "5", "--max-chars", "24",
                           "--document-id", "example", "--source", "fixture", "--print-chunks"])
 
                 client = chromadb.PersistentClient(path=str(persistence))
                 collection = client.get_collection("documents")
+                self.assertEqual({key: collection.metadata.get(key) for key in EMBEDDING}, EMBEDDING)
                 stored = collection.get(include=["documents", "metadatas", "embeddings"])
                 self.assertGreater(len(stored["ids"]), 1)
-                embed.assert_called_once_with(
+                provider.embed_documents.assert_called_once_with(
                     stored["documents"],
                     titles=[metadata["section_title"] for metadata in stored["metadatas"]],
                 )
@@ -59,34 +78,38 @@ class IngestCliTests(unittest.TestCase):
             source.write_text("A document.", encoding="utf-8")
             persistence = Path(directory) / "chroma_db"
             with patch("ia_agents.ingest_cli.Path", wraps=Path) as path_class, \
-                    patch("ia_agents.ingest_cli.embed_documents", return_value=[[1.0, 0.0]]), \
+                    patch_provider(fake_provider([[1.0, 0.0]])), \
                     patch("ia_agents.ingest_cli.chromadb.PersistentClient") as client_class, \
                     redirect_stdout(io.StringIO()):
+                client_class.return_value.get_collection.side_effect = NotFoundError("missing")
                 # Exercise parser defaults while redirecting the relative default to a temp folder.
                 path_class.side_effect = lambda value=".": persistence if value == "chroma_db" else Path(value)
                 main([str(source)])
                 client_class.assert_called_once_with(path=str(persistence))
-                client_class.return_value.get_or_create_collection.assert_called_once_with(name="documents")
+                client_class.return_value.get_or_create_collection.assert_called_once_with(
+                    name="documents", metadata=EMBEDDING,
+                )
 
-    def test_invalid_input_does_not_call_google(self):
+    def test_invalid_input_does_not_create_a_provider(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "empty.txt"
             source.write_text(" \n\t", encoding="utf-8")
             for extra in ([], ["--overlap", "300"], ["--strategy", "paragraphs", "--max-chars", "0"]):
-                with self.subTest(extra=extra), patch("ia_agents.ingest_cli.embed_documents") as embed:
+                with self.subTest(extra=extra), patch("ia_agents.ingest_cli.get_embedding_provider") as get_provider:
                     with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                         main([str(source), *extra])
-                    embed.assert_not_called()
+                    get_provider.assert_not_called()
 
     def test_vector_count_mismatch_does_not_write_to_collection(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "input.txt"
             source.write_text("A document.", encoding="utf-8")
-            with patch("ia_agents.ingest_cli.embed_documents", return_value=[]), \
-                    patch("ia_agents.ingest_cli.chromadb.PersistentClient") as client_class:
+            persistence = Path(directory) / "db"
+            with patch_provider(fake_provider([])):
                 with self.assertRaisesRegex(ValueError, "number of vectors"):
-                    main([str(source), "--persist-directory", str(Path(directory) / "db")])
-                client_class.assert_not_called()
+                    main([str(source), "--persist-directory", str(persistence)])
+            with self.assertRaises(NotFoundError):
+                chromadb.PersistentClient(path=str(persistence)).get_collection("documents")
 
     def test_reingestion_upserts_same_chunk_ids(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -94,12 +117,40 @@ class IngestCliTests(unittest.TestCase):
             source = root / "input.txt"
             source.write_text("A short document.", encoding="utf-8")
             persistence = root / "db"
-            with patch("ia_agents.ingest_cli.embed_documents", return_value=[[1.0, 0.0]]), \
-                    redirect_stdout(io.StringIO()):
+            with patch_provider(fake_provider([[1.0, 0.0]])), redirect_stdout(io.StringIO()):
                 main([str(source), "--persist-directory", str(persistence)])
                 main([str(source), "--persist-directory", str(persistence)])
             collection = chromadb.PersistentClient(path=str(persistence)).get_collection("documents")
             self.assertEqual(collection.count(), 1)
+
+    def test_rejects_collection_from_a_different_embedding_before_embedding(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "input.txt"
+            source.write_text("A short document.", encoding="utf-8")
+            persistence = Path(directory) / "db"
+            with patch_provider(fake_provider([[1.0, 0.0]])), redirect_stdout(io.StringIO()):
+                main([str(source), "--persist-directory", str(persistence)])
+            for other in (fake_provider(name="openai", model="test-model"),
+                          fake_provider(name="google", model="other-model")):
+                with self.subTest(provider=other.name, model=other.model), patch_provider(other):
+                    stderr = io.StringIO()
+                    with redirect_stderr(stderr), self.assertRaises(SystemExit):
+                        main([str(source), "--persist-directory", str(persistence)])
+                    self.assertIn("was ingested with", stderr.getvalue())
+                    other.embed_documents.assert_not_called()
+
+    def test_rejects_collection_without_recorded_embedding(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "input.txt"
+            source.write_text("A short document.", encoding="utf-8")
+            persistence = Path(directory) / "db"
+            chromadb.PersistentClient(path=str(persistence)).create_collection("documents")
+            provider = fake_provider([[1.0, 0.0]])
+            stderr = io.StringIO()
+            with patch_provider(provider), redirect_stderr(stderr), self.assertRaises(SystemExit):
+                main([str(source), "--persist-directory", str(persistence)])
+            self.assertIn("does not record its embedding", stderr.getvalue())
+            provider.embed_documents.assert_not_called()
 
 
 if __name__ == "__main__":

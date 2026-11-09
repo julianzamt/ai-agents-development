@@ -9,6 +9,9 @@ data/*.json
 # Local ChromaDB persistence
 chroma_db/
 
+# Chunk dumps from ingest --dry-run
+*.chunks.txt
+
 *.egg-info/
 build/
 dist/

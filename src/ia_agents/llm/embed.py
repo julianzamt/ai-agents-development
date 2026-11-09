@@ -13,8 +13,15 @@ import chromadb
 load_dotenv()
 
 
+EMBEDDING_PROVIDER_KEY = "embedding_provider"
+EMBEDDING_MODEL_KEY = "embedding_model"
+
+
 class EmbeddingProvider(Protocol):
     """Provider-neutral interface for retrieval document and query vectors."""
+
+    name: str
+    model: str
 
     def embed_documents(self, texts: list[str], titles: list[str | None] | None = None) -> list[list[float]]: ...
 
@@ -22,8 +29,10 @@ class EmbeddingProvider(Protocol):
 
 
 class GoogleEmbeddingProvider:
-    def __init__(self) -> None:
-        self.model = os.environ.get("GOOGLE_EMBEDDING_MODEL_ID", "gemini-embedding-2")
+    name = "google"
+
+    def __init__(self, model: str | None = None) -> None:
+        self.model = model or os.environ.get("GOOGLE_EMBEDDING_MODEL_ID", "gemini-embedding-2")
         self.client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
 
     def _embed(self, texts: list[str], purpose: Literal["document", "query"], titles: list[str | None] | None = None):
@@ -67,10 +76,12 @@ class GoogleEmbeddingProvider:
 
 
 class OpenAIEmbeddingProvider:
-    def __init__(self) -> None:
+    name = "openai"
+
+    def __init__(self, model: str | None = None) -> None:
         from openai import OpenAI
 
-        self.model = os.environ.get("OPENAI_EMBEDDING_MODEL_ID", "text-embedding-3-small")
+        self.model = model or os.environ.get("OPENAI_EMBEDDING_MODEL_ID", "text-embedding-3-small")
         self.client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
@@ -87,10 +98,12 @@ class OpenAIEmbeddingProvider:
 
 
 class OllamaEmbeddingProvider:
-    def __init__(self) -> None:
+    name = "ollama"
+
+    def __init__(self, model: str | None = None) -> None:
         from ollama import Client
 
-        self.model = os.environ.get("OLLAMA_EMBEDDING_MODEL_ID", "nomic-embed-text")
+        self.model = model or os.environ.get("OLLAMA_EMBEDDING_MODEL_ID", "nomic-embed-text")
         self.client = Client(host=os.environ.get("OLLAMA_HOST"))
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
@@ -106,32 +119,41 @@ class OllamaEmbeddingProvider:
         return self._embed(texts)
 
 
-def get_embedding_provider(provider: str | EmbeddingProvider | None = None) -> EmbeddingProvider:
-    """Create the configured embedding provider (Google by default)."""
-    if provider is not None and not isinstance(provider, str):
-        return provider
-    provider = (provider or os.environ.get("EMBEDDING_PROVIDER", "google")).lower()
-    providers = {
-        "google": GoogleEmbeddingProvider,
-        "openai": OpenAIEmbeddingProvider,
-        "ollama": OllamaEmbeddingProvider,
-    }
+EMBEDDING_PROVIDERS = {
+    provider.name: provider
+    for provider in (GoogleEmbeddingProvider, OpenAIEmbeddingProvider, OllamaEmbeddingProvider)
+}
+
+
+def get_embedding_provider(name: str | None = None, model: str | None = None) -> EmbeddingProvider:
+    """Create an embedding provider.
+
+    Without a name, EMBEDDING_PROVIDER selects it (Google by default). Without
+    a model, the provider's model environment variable or default applies.
+    """
+    name = (name or os.environ.get("EMBEDDING_PROVIDER", "google")).lower()
     try:
-        return providers[provider]()
+        provider_class = EMBEDDING_PROVIDERS[name]
     except KeyError as exc:
-        raise ValueError(f"Unsupported embedding provider: {provider!r}") from exc
+        raise ValueError(f"Unsupported embedding provider: {name!r}") from exc
+    return provider_class(model)
 
 
-def embed_documents(texts: list[str], titles: list[str | None] | None = None) -> list[list[float]]:
-    if not texts:
-        return []
-    return get_embedding_provider().embed_documents(texts, titles=titles)
+def embedding_metadata(provider: EmbeddingProvider) -> dict[str, str]:
+    """Collection metadata recording which embedding space its vectors use."""
+    return {EMBEDDING_PROVIDER_KEY: provider.name, EMBEDDING_MODEL_KEY: provider.model}
 
 
-def embed_queries(texts: list[str]) -> list[list[float]]:
-    if not texts:
-        return []
-    return get_embedding_provider().embed_queries(texts)
+def collection_embedding(collection: chromadb.Collection) -> dict[str, str]:
+    """Return the embedding provider and model recorded on a collection at ingestion."""
+    metadata = collection.metadata or {}
+    recorded = {key: metadata.get(key) for key in (EMBEDDING_PROVIDER_KEY, EMBEDDING_MODEL_KEY)}
+    if not all(recorded.values()):
+        raise ValueError(
+            f"Collection {collection.name!r} does not record its embedding provider and model. "
+            "Re-ingest the documents into a new collection."
+        )
+    return recorded
 
 
 def search(
@@ -140,9 +162,11 @@ def search(
     k: int = 3,
     max_distance: float | None = None,
     where: dict | None = None,
-    provider: str | EmbeddingProvider = "google",
 ) -> list[dict] | list[list[dict]]:
     """Search a Chroma collection with one or more text queries.
+
+    Queries are embedded with the provider and model recorded on the
+    collection at ingestion, so they share the stored vectors' space.
 
     A single string returns a flat list of results. A list of strings returns
     one result list per query. If ``max_distance`` is set, results farther
@@ -157,10 +181,13 @@ def search(
     if not query_texts:
         return []
 
-    embedding_provider = get_embedding_provider(provider)
+    recorded = collection_embedding(collection)
+    embedding_provider = get_embedding_provider(
+        recorded[EMBEDDING_PROVIDER_KEY], recorded[EMBEDDING_MODEL_KEY],
+    )
     query_embeddings = embedding_provider.embed_queries(query_texts)
     if len(query_embeddings) != len(query_texts):
-        raise ValueError("Google returned a different number of vectors than queries.")
+        raise ValueError("The embedding provider returned a different number of vectors than queries.")
 
     query_options = {"query_embeddings": query_embeddings, "n_results": k}
     if where is not None:

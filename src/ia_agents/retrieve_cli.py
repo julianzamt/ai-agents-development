@@ -1,7 +1,6 @@
 """Inspect semantic retrieval results from a persistent ChromaDB collection."""
 
 import argparse
-import os
 from pathlib import Path
 
 import chromadb
@@ -24,11 +23,6 @@ def main(argv=None):
     )
     parser.add_argument("--section", help="Filter by section ID, e.g. section_04")
     parser.add_argument("--document-id", help="Filter by document ID")
-    parser.add_argument(
-        "--provider", choices=["google", "openai", "ollama"],
-        default=os.environ.get("EMBEDDING_PROVIDER", "google"),
-        help="Embedding provider (default: EMBEDDING_PROVIDER or google)",
-    )
     args = parser.parse_args(argv)
 
     if args.k <= 0:
@@ -53,14 +47,16 @@ def main(argv=None):
     elif filters:
         where = {"$and": filters}
 
-    results_by_query = search(
-        args.queries,
-        collection,
-        k=args.k,
-        max_distance=args.max_distance,
-        where=where,
-        provider=args.provider,
-    )
+    try:
+        results_by_query = search(
+            args.queries,
+            collection,
+            k=args.k,
+            max_distance=args.max_distance,
+            where=where,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     for query, results in zip(args.queries, results_by_query):
         print(f"\nQuery: {query}")
         if not results:

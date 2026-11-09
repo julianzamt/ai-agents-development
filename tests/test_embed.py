@@ -11,7 +11,7 @@ from unittest.mock import patch
 from google.genai import types, _transformers
 
 from ia_agents.llm.embed import (
-    GoogleEmbeddingProvider, build_chunks, clean_text, search,
+    GoogleEmbeddingProvider, build_chunks, clean_text, get_embedding_provider, search,
 )
 
 
@@ -151,7 +151,9 @@ class IngestionLabTests(unittest.TestCase):
 
     def test_search_accepts_batched_queries_and_filters_each_result_set_by_distance(self):
         collection = SimpleNamespace(
-            metadata={"hnsw:space": "cosine"},
+            name="docs",
+            metadata={"hnsw:space": "cosine", "embedding_provider": "openai",
+                      "embedding_model": "text-embedding-3-small"},
             query=unittest.mock.Mock(return_value={
                 "ids": [["chunk-a", "chunk-b"], ["chunk-c"]],
                 "documents": [["text a", "text b"], ["text c"]],
@@ -170,7 +172,7 @@ class IngestionLabTests(unittest.TestCase):
                 where={"document_id": "doc"},
             )
 
-        get_provider.assert_called_once_with("google")
+        get_provider.assert_called_once_with("openai", "text-embedding-3-small")
         embedding_provider.embed_queries.assert_called_once_with(queries)
         collection.query.assert_called_once_with(
             query_embeddings=query_embeddings,
@@ -189,7 +191,9 @@ class IngestionLabTests(unittest.TestCase):
 
     def test_search_single_query_returns_flat_results(self):
         collection = SimpleNamespace(
-            metadata={"hnsw:space": "cosine"},
+            name="docs",
+            metadata={"hnsw:space": "cosine", "embedding_provider": "openai",
+                      "embedding_model": "text-embedding-3-small"},
             query=unittest.mock.Mock(return_value={
                 "ids": [["chunk-a"]],
                 "documents": [["text a"]],
@@ -205,6 +209,48 @@ class IngestionLabTests(unittest.TestCase):
             "chunk_id": "chunk-a", "text": "text a", "distance": 0.25,
             "metadata": {},
         }])
+
+    def test_search_uses_recorded_provider_over_environment(self):
+        collection = SimpleNamespace(
+            name="docs",
+            metadata={"embedding_provider": "openai", "embedding_model": "text-embedding-3-large"},
+            query=unittest.mock.Mock(return_value={
+                "ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]],
+            }),
+        )
+        with patch.dict("os.environ", {
+            "EMBEDDING_PROVIDER": "google", "OPENAI_API_KEY": "test-key",
+            "OPENAI_EMBEDDING_MODEL_ID": "text-embedding-3-small",
+        }), patch("openai.OpenAI") as client_class:
+            client_class.return_value.embeddings.create.return_value = SimpleNamespace(
+                data=[SimpleNamespace(embedding=[1.0, 0.0])],
+            )
+            self.assertEqual(search("question", collection), [])
+            client_class.return_value.embeddings.create.assert_called_once_with(
+                model="text-embedding-3-large", input=["question"],
+            )
+
+    def test_search_rejects_collection_without_recorded_embedding(self):
+        for metadata in (None, {"hnsw:space": "cosine"}, {"embedding_provider": "google"}):
+            collection = SimpleNamespace(name="docs", metadata=metadata, query=unittest.mock.Mock())
+            with self.subTest(metadata=metadata), \
+                    patch("ia_agents.llm.embed.get_embedding_provider") as get_provider:
+                with self.assertRaisesRegex(ValueError, "does not record its embedding"):
+                    search("question", collection)
+                get_provider.assert_not_called()
+                collection.query.assert_not_called()
+
+    def test_get_embedding_provider_defaults_to_environment(self):
+        with patch.dict("os.environ", {
+            "EMBEDDING_PROVIDER": "Google", "GOOGLE_API_KEY": "test-key",
+            "GOOGLE_EMBEDDING_MODEL_ID": "gemini-embedding-001",
+        }), patch("ia_agents.llm.embed.genai.Client"):
+            provider = get_embedding_provider()
+            self.assertEqual((provider.name, provider.model), ("google", "gemini-embedding-001"))
+            explicit = get_embedding_provider("google", "gemini-embedding-2")
+            self.assertEqual(explicit.model, "gemini-embedding-2")
+        with self.assertRaisesRegex(ValueError, "Unsupported embedding provider"):
+            get_embedding_provider("cohere")
 
     def test_gemini_embedding_2_formats_query_for_search(self):
         response = SimpleNamespace(embeddings=[SimpleNamespace(values=[1.0, 0.0])])
