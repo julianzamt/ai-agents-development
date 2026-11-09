@@ -123,6 +123,47 @@ class IngestCliTests(unittest.TestCase):
             collection = chromadb.PersistentClient(path=str(persistence)).get_collection("documents")
             self.assertEqual(collection.count(), 1)
 
+    def test_dry_run_writes_readable_report_without_embedding_or_storing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "corpus.txt"
+            source.write_text("1. First\n\nAlpha paragraph.\n\n2. Second\n\nBeta paragraph.", encoding="utf-8")
+            dump = root / "out" / "chunks.txt"
+            persistence = root / "db"
+            stdout = io.StringIO()
+            with patch("ia_agents.ingest_cli.get_embedding_provider") as get_provider, \
+                    patch("ia_agents.ingest_cli.chromadb.PersistentClient") as client_class, \
+                    redirect_stdout(stdout):
+                main([str(source), "--dry-run", "--dump-file", str(dump), "--strategy", "paragraphs",
+                      "--document-id", "example", "--persist-directory", str(persistence)])
+            get_provider.assert_not_called()
+            client_class.assert_not_called()
+            self.assertFalse(persistence.exists())
+            self.assertIn("nothing embedded", stdout.getvalue())
+            report = dump.read_text(encoding="utf-8")
+            self.assertIn("Chunks: 2", report)
+            self.assertIn("Characters per chunk: min=", report)
+            self.assertIn("section_01 | First: 1", report)
+            self.assertIn("Alpha paragraph.", report)
+            self.assertIn("Beta paragraph.", report)
+
+    def test_dry_run_defaults_dump_file_to_document_id_in_cwd(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "corpus.txt"
+            source.write_text("A document.", encoding="utf-8")
+            with patch("ia_agents.ingest_cli.Path", wraps=Path) as path_class, redirect_stdout(io.StringIO()):
+                target = Path(directory) / "corpus.chunks.txt"
+                path_class.side_effect = lambda value=".": target if value == "corpus.chunks.txt" else Path(value)
+                main([str(source), "--dry-run"])
+            self.assertIn("A document.", target.read_text(encoding="utf-8"))
+
+    def test_dump_file_requires_dry_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "corpus.txt"
+            source.write_text("A document.", encoding="utf-8")
+            with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                main([str(source), "--dump-file", str(Path(directory) / "x.txt")])
+
     def test_rejects_collection_from_a_different_embedding_before_embedding(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "input.txt"

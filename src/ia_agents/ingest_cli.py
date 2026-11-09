@@ -1,6 +1,8 @@
 """Ingest a UTF-8 text file into a local ChromaDB collection."""
 
 import argparse
+import statistics
+from collections import Counter
 from pathlib import Path
 
 import chromadb
@@ -9,6 +11,28 @@ from chromadb.errors import NotFoundError
 from .llm.embed import (
     build_chunks, clean_text, collection_embedding, embedding_metadata, get_embedding_provider,
 )
+
+
+def format_chunks_report(chunks, settings: str) -> str:
+    """Readable text report: settings, size statistics, then every chunk in order."""
+    sizes = [len(chunk.text) for chunk in chunks]
+    sections = Counter((chunk.section_id, chunk.section_title) for chunk in chunks)
+    lines = [
+        f"Settings: {settings}",
+        f"Chunks: {len(chunks)}",
+        f"Characters per chunk: min={min(sizes)} median={statistics.median(sizes):g} max={max(sizes)}",
+        "Chunks per section:",
+        *(f"  {section_id} | {title}: {count}" for (section_id, title), count in sections.items()),
+    ]
+    for chunk in chunks:
+        lines += [
+            "", "=" * 72,
+            f"{chunk.chunk_id} | {len(chunk.text)} characters",
+            f"Section: {chunk.section_id} | {chunk.section_title}",
+            f"Source: {chunk.source}",
+            "-" * 72, chunk.text,
+        ]
+    return "\n".join(lines) + "\n"
 
 
 def main(argv=None):
@@ -26,8 +50,18 @@ def main(argv=None):
     parser.add_argument("--overlap", type=int, default=50, help="Character chunk overlap")
     parser.add_argument("--max-chars", type=int, default=500, help="Paragraph grouping limit; oversized paragraphs stay intact")
     parser.add_argument("--print-chunks", action="store_true", help="Print chunk metadata and text")
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Write the chunks to a readable file and stop: no embedding provider, no ChromaDB",
+    )
+    parser.add_argument(
+        "--dump-file", type=Path,
+        help="Dry-run output file (default: <document-id>.chunks.txt in the current directory)",
+    )
     args = parser.parse_args(argv)
 
+    if args.dump_file is not None and not args.dry_run:
+        parser.error("--dump-file requires --dry-run.")
     if args.strategy == "characters" and not (0 <= args.overlap < args.chunk_size):
         parser.error("Require chunk-size > 0 and 0 <= overlap < chunk-size.")
     if args.strategy == "paragraphs" and args.max_chars <= 0:
@@ -50,6 +84,19 @@ def main(argv=None):
             print(f"Section: {chunk.section_id} | {chunk.section_title}")
             print(f"Source: {chunk.source} | Ingested: {chunk.ingested_at.isoformat()}")
             print(f"{'-' * 72}\n{chunk.text}")
+
+    if args.dry_run:
+        dump_file = args.dump_file or Path(f"{chunks[0].document_id}.chunks.txt")
+        settings = (f"strategy={args.strategy} chunk_size={args.chunk_size} overlap={args.overlap}"
+                    if args.strategy == "characters" else f"strategy={args.strategy} max_chars={args.max_chars}")
+        report = format_chunks_report(chunks, settings)
+        try:
+            dump_file.parent.mkdir(parents=True, exist_ok=True)
+            dump_file.write_text(report, encoding="utf-8")
+        except OSError as exc:
+            parser.error(str(exc))
+        print(f"Dry run: wrote {len(chunks)} chunks to {dump_file} (nothing embedded or stored)")
+        return
 
     provider = get_embedding_provider()
     expected = embedding_metadata(provider)
