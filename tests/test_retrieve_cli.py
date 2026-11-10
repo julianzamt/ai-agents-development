@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import chromadb
 
-from ia_agents.rag.retrieve_cli import main
+from ia_agents.rag.retrieve_cli import build_where, main, parse_filter
 
 
 def make_collection(directory, metadata=None):
@@ -44,6 +44,51 @@ class RetrieveCliTests(unittest.TestCase):
                 main(["question", "--persist-directory", directory])
             self.assertIn("does not record its embedding", stderr.getvalue())
             search.assert_not_called()
+
+    def test_filters_are_combined_into_one_where_clause(self):
+        with tempfile.TemporaryDirectory() as directory:
+            make_collection(directory, {"embedding_provider": "voyage", "embedding_model": "voyage-4"})
+            with patch("ia_agents.rag.retrieve_cli.search", return_value=[[]]) as search, \
+                    redirect_stdout(io.StringIO()):
+                main(["question", "--persist-directory", directory,
+                      "--filter", "source=guia-apis", "--filter", "tema=apis",
+                      "--section", "section_01"])
+            self.assertEqual(search.call_args.kwargs["where"], {"$and": [
+                {"source": "guia-apis"}, {"tema": "apis"}, {"section_id": "section_01"},
+            ]})
+
+    def test_single_filter_is_not_wrapped_in_and(self):
+        with tempfile.TemporaryDirectory() as directory:
+            make_collection(directory, {"embedding_provider": "voyage", "embedding_model": "voyage-4"})
+            with patch("ia_agents.rag.retrieve_cli.search", return_value=[[]]) as search, \
+                    redirect_stdout(io.StringIO()):
+                main(["question", "--persist-directory", directory, "--filter", "tema=apis"])
+            self.assertEqual(search.call_args.kwargs["where"], {"tema": "apis"})
+
+    def test_no_filters_passes_no_where_clause(self):
+        with tempfile.TemporaryDirectory() as directory:
+            make_collection(directory, {"embedding_provider": "voyage", "embedding_model": "voyage-4"})
+            with patch("ia_agents.rag.retrieve_cli.search", return_value=[[]]) as search, \
+                    redirect_stdout(io.StringIO()):
+                main(["question", "--persist-directory", directory])
+            self.assertIsNone(search.call_args.kwargs["where"])
+
+    def test_filter_value_may_contain_equals_signs(self):
+        self.assertEqual(parse_filter("title=a=b"), ("title", "a=b"))
+
+    def test_malformed_filter_is_an_error(self):
+        for text in ["tema", "=apis", ""]:
+            with self.subTest(text=text), self.assertRaises(Exception):
+                parse_filter(text)
+        stderr = io.StringIO()
+        with patch("ia_agents.rag.retrieve_cli.search") as search, \
+                redirect_stderr(stderr), self.assertRaises(SystemExit):
+            main(["question", "--filter", "tema"])
+        self.assertIn("expected KEY=VALUE", stderr.getvalue())
+        search.assert_not_called()
+
+    def test_build_where_is_none_without_filters(self):
+        self.assertIsNone(build_where([]))
 
 
 if __name__ == "__main__":

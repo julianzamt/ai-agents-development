@@ -8,6 +8,24 @@ import chromadb
 from .embed import collection_embedding, search
 
 
+def parse_filter(text: str) -> tuple[str, str]:
+    """Split a KEY=VALUE metadata filter argument."""
+    key, separator, value = text.partition("=")
+    if not separator or not key.strip():
+        raise argparse.ArgumentTypeError(f"expected KEY=VALUE, got {text!r}")
+    return key.strip(), value
+
+
+def build_where(filters: list[tuple[str, str]]) -> dict | None:
+    """Build a Chroma `where` clause requiring every metadata key to equal its value."""
+    clauses = [{key: value} for key, value in filters]
+    if not clauses:
+        return None
+    if len(clauses) == 1:
+        return clauses[0]
+    return {"$and": clauses}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("queries", nargs="+", help="One or more search queries")
@@ -20,6 +38,12 @@ def main(argv=None):
     parser.add_argument(
         "--max-distance", type=float,
         help="Omit results with a larger Chroma distance",
+    )
+    parser.add_argument(
+        "--filter", dest="filters", action="append", default=[], type=parse_filter,
+        metavar="KEY=VALUE",
+        help="Keep only chunks whose metadata KEY equals VALUE, e.g. --filter source=guia-apis. "
+             "Repeat to require several (all must match).",
     )
     parser.add_argument("--section", help="Filter by section ID, e.g. section_04")
     parser.add_argument("--document-id", help="Filter by document ID")
@@ -45,16 +69,12 @@ def main(argv=None):
         f"{recorded['embedding_provider']} / {recorded['embedding_model']}"
     )
 
-    filters = []
+    filters = list(args.filters)
     if args.section:
-        filters.append({"section_id": args.section})
+        filters.append(("section_id", args.section))
     if args.document_id:
-        filters.append({"document_id": args.document_id})
-    where = None
-    if len(filters) == 1:
-        where = filters[0]
-    elif filters:
-        where = {"$and": filters}
+        filters.append(("document_id", args.document_id))
+    where = build_where(filters)
 
     try:
         results_by_query = search(

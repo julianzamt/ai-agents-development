@@ -150,7 +150,9 @@ retrieve "Who were the members of Serú Girán?" "Which album began the solo per
 
 The command prints each match's Chroma distance, chunk ID, section metadata, and
 text. Use `--section section_04` or `--document-id charly` to filter by metadata,
-and `--max-distance` to hide matches beyond a distance threshold. You can also
+or `--filter KEY=VALUE` for any metadata field (repeat it to require several; all
+filters must match). Values are compared as strings. `--max-distance` hides matches
+beyond a distance threshold. You can also
 run it as `python3 -m ia_agents.rag.retrieve_cli`.
 
 ## Tests
