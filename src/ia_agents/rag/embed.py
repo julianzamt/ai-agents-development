@@ -204,6 +204,7 @@ def search(
     k: int = 3,
     max_distance: float | None = None,
     where: dict | None = None,
+    where_document: dict | None = None,
 ) -> list[dict] | list[list[dict]]:
     """Search a Chroma collection with one or more text queries.
 
@@ -212,7 +213,8 @@ def search(
 
     A single string returns a flat list of results. A list of strings returns
     one result list per query. If ``max_distance`` is set, results farther
-    away than that threshold are omitted. Distances are returned as Chroma
+    away than that threshold are omitted. ``where`` filters on metadata and
+    ``where_document`` filters on chunk text. Distances are returned as Chroma
     reports them and depend on the collection's configured metric.
     """
     if k <= 0:
@@ -234,6 +236,8 @@ def search(
     query_options = {"query_embeddings": query_embeddings, "n_results": k}
     if where is not None:
         query_options["where"] = where
+    if where_document is not None:
+        query_options["where_document"] = where_document
     response = collection.query(**query_options)
 
     ids_by_query = response.get("ids", [])
@@ -261,3 +265,26 @@ def search(
         results_by_query.append(query_results)
 
     return results_by_query[0] if single_query else results_by_query
+
+
+def get_chunks(
+    collection: chromadb.Collection,
+    ids: list[str] | None = None,
+    where: dict | None = None,
+    where_document: dict | None = None,
+) -> list[dict]:
+    """Fetch chunks by exact ID and/or filters, without embedding anything."""
+    get_options = {"include": ["documents", "metadatas"]}
+    if ids:
+        get_options["ids"] = ids
+    if where is not None:
+        get_options["where"] = where
+    if where_document is not None:
+        get_options["where_document"] = where_document
+    response = collection.get(**get_options)
+    return [
+        {"chunk_id": chunk_id, "text": text, "metadata": metadata or {}}
+        for chunk_id, text, metadata in zip(
+            response["ids"], response["documents"], response["metadatas"],
+        )
+    ]

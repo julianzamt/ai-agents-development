@@ -152,7 +152,16 @@ The command prints each match's Chroma distance, chunk ID, section metadata, and
 text. Use `--section section_04` or `--document-id charly` to filter by metadata,
 or `--filter KEY=VALUE` for any metadata field (repeat it to require several; all
 filters must match). Values are compared as strings. `--max-distance` hides matches
-beyond a distance threshold. You can also
+beyond a distance threshold.
+
+More filters:
+
+- `--filter KEY:OP=VALUE` with `OP` one of `eq` (default), `ne`, `in`, `nin` (comma-separated
+  values, e.g. `--filter tema:in=apis,rag`), or `gt`, `gte`, `lt`, `lte` (numeric; the stored
+  metadata must be numeric too, since ingestion stores strings).
+- `--contains TEXT` and `--regex PATTERN` filter on the chunk text.
+- `--chunk-id ID` fetches a chunk by its exact ID without a query and without an embedding
+  call. It can be combined with the metadata and text filters, but not with queries. You can also
 run it as `python3 -m ia_agents.rag.retrieve_cli`.
 
 ## Tests
