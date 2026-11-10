@@ -62,10 +62,11 @@ that query; configuration-only commands save them for future calls.
 
 - `src/ia_agents/cli.py`: chat client argument parsing and command workflow.
 - `src/ia_agents/llm/`: client, providers, responses and persistence.
-- `src/ia_agents/rag/`: retrieval pipeline.
+- `src/ia_agents/rag/`: retrieval-augmented generation, from chunking to cited answers.
   - `preprocess.py`: text chunking (no provider or network).
   - `embed.py`: embedding providers and semantic search.
-  - `chunk_cli.py`, `ingest_cli.py` and `retrieve_cli.py`: the `chunk`, `ingest` and `retrieve` commands.
+  - `pipeline.py`: `rag()`, the end-to-end pipeline (threshold, context budget, delimited prompt, citations, query log).
+  - `chunk_cli.py`, `ingest_cli.py`, `retrieve_cli.py` and `ask_cli.py`: the `chunk`, `ingest`, `retrieve` and `ask` commands.
 - `src/ia_agents/schemas/`: Pydantic data models.
 - `tests/`: offline tests without real API calls.
 - `clases/clase2/` and `clases/clase3/`: original course material.
@@ -163,6 +164,42 @@ More filters:
 - `--chunk-id ID` fetches a chunk by its exact ID without a query and without an embedding
   call. It can be combined with the metadata and text filters, but not with queries. You can also
 run it as `python3 -m ia_agents.rag.retrieve_cli`.
+
+## Asking questions (RAG)
+
+`ask` answers questions from a collection with the configured `LLM_PROVIDER`, citing the
+chunks it used:
+
+```bash
+ask "What is a closure in JavaScript?" "How do I back up a PostgreSQL database?"
+```
+
+For each question, `rag()` in `ia_agents.rag.pipeline`:
+
+1. Retrieves the top `-k` chunks (default 3), with the same `--filter`, `--document-id` and
+   `--contains` filters as `retrieve`.
+2. Keeps chunks within `--max-distance` (default 1.2). If none pass, it answers "I found no
+   sufficient evidence…" without calling the LLM.
+3. Fits them into `--max-prompt-chars` (default 6000), a budget for the whole prompt:
+   system prompt, question and evidence. Lower-ranked chunks are dropped first; a single
+   chunk that does not fit is truncated.
+4. Sends the numbered evidence and the question inside `<evidence>` and `<question>` tags.
+   The system prompt allows answers only from the evidence, requires `[n]` citations and
+   asks for "I don't know the answer." otherwise. That reply is shown as the no-evidence
+   message.
+5. Checks every `[n]` against the evidence provided. Code is ignored, so `arr[0]` is not a
+   citation. Citations of evidence that was never provided are reported.
+
+Each question appends a JSON line to `data/rag_log.jsonl` (`--log FILE` to change it,
+`--no-log` to skip it). The record lists the chunks retrieved with their distances, those
+that passed the threshold, those in the context, those cited, any invalid citations, the
+settings, and an `outcome`: `no_evidence` (nothing passed the threshold), `abstained` (the
+model found the evidence insufficient) or `answered`.
+
+The defaults were measured on the `documents` collection (MDN guide, `voyage-4`, L2
+distance). There, in-domain questions score ≤ 1.00, ambiguous ones 1.00–1.12 and
+out-of-domain ones ≥ 1.33. Re-measure the threshold with `retrieve` and the budget with
+`chunk` if the embedding model, the metric or the chunking changes.
 
 ## Tests
 

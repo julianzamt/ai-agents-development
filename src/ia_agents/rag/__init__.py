@@ -1,1 +1,1 @@
-"""Retrieval pipeline: text preprocessing, embedding providers, ingestion and search."""
+"""Retrieval-augmented generation: chunking, ingestion, retrieval and answer generation."""
