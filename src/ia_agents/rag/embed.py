@@ -8,8 +8,8 @@ import chromadb
 load_dotenv()
 
 
-EMBEDDING_PROVIDER_KEY = "embedding_provider"
-EMBEDDING_MODEL_KEY = "embedding_model"
+EMBEDDING_PROVIDER_FIELD_NAME = "embedding_provider"
+EMBEDDING_MODEL_FIELD_NAME = "embedding_model"
 
 
 class EmbeddingProvider(Protocol):
@@ -183,13 +183,13 @@ def get_embedding_provider(name: str | None = None, model: str | None = None) ->
 
 def embedding_metadata(provider: EmbeddingProvider) -> dict[str, str]:
     """Collection metadata recording which embedding space its vectors use."""
-    return {EMBEDDING_PROVIDER_KEY: provider.name, EMBEDDING_MODEL_KEY: provider.model}
+    return {EMBEDDING_PROVIDER_FIELD_NAME: provider.name, EMBEDDING_MODEL_FIELD_NAME: provider.model}
 
 
 def collection_embedding(collection: chromadb.Collection) -> dict[str, str]:
     """Return the embedding provider and model recorded on a collection at ingestion."""
     metadata = collection.metadata or {}
-    recorded = {key: metadata.get(key) for key in (EMBEDDING_PROVIDER_KEY, EMBEDDING_MODEL_KEY)}
+    recorded = {key: metadata.get(key) for key in (EMBEDDING_PROVIDER_FIELD_NAME, EMBEDDING_MODEL_FIELD_NAME)}
     if not all(recorded.values()):
         raise ValueError(
             f"Collection {collection.name!r} does not record its embedding provider and model. "
@@ -227,7 +227,7 @@ def search(
 
     recorded = collection_embedding(collection)
     embedding_provider = get_embedding_provider(
-        recorded[EMBEDDING_PROVIDER_KEY], recorded[EMBEDDING_MODEL_KEY],
+        recorded[EMBEDDING_PROVIDER_FIELD_NAME], recorded[EMBEDDING_MODEL_FIELD_NAME],
     )
     query_embeddings = embedding_provider.embed_queries(query_texts)
     if len(query_embeddings) != len(query_texts):
