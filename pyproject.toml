@@ -15,6 +15,7 @@ chunk = "ia_agents.rag.chunk_cli:main"
 ingest = "ia_agents.rag.ingest_cli:main"
 retrieve = "ia_agents.rag.retrieve_cli:main"
 ask = "ia_agents.rag.ask_cli:main"
+diagnose = "ia_agents.rag.diagnose_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
