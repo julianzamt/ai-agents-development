@@ -124,7 +124,7 @@ the result after changing a cleaning or chunking rule). For a single file it wri
 The default strategy, `markdown`, is for Markdown such as `corpus/clean/`: it splits at
 `##` and `###` headings, prefixes every chunk with its heading path (`Title > H2 > H3`),
 never cuts a code fence or table, and merges tiny sections into a neighbour
-(`--min-chars 300`, `--target-chars 1200`, `--max-chars 2000`). The front matter `slug`
+(`--min-chars 300`, `--target-chars 1600`, `--max-chars 2000`). The front matter `slug`
 becomes the document ID. Ingest one file at a time, for example
 `ingest corpus/clean/closures/index.md`, or pass a directory to ingest every `.md` and
 `.txt` file under it in one run, for example

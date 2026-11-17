@@ -47,6 +47,7 @@ def chunk_by_paragraphs(text: str, max_chars: int = 500) -> list[str]:
 FRONT_MATTER_RE = re.compile(r"\A---[ \t]*\n(.*?)\n---[ \t]*(?:\n|\Z)", re.S)
 FENCE_OPEN_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
 HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t#]*$")
+LIST_ITEM_RE = re.compile(r"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+")
 SENTENCE_END_RE = re.compile(r"(?<=[.!?])\s+")
 SECTION_LEVELS = (2, 3)  # headings that start a new section
 
@@ -235,7 +236,8 @@ def _split_oversized_table(text: str, limit: int) -> list[str]:
 
 def _build_units(blocks: list[_Block], limit: int) -> list[str]:
     """Blocks glued into indivisible units: a deep heading stays with what follows it, and
-    code or a table stays with the paragraph that introduces it (when the pair fits)."""
+    code, a table or a list stays with the paragraph that introduces it (when the pair fits).
+    A list is only glued to a paragraph ending in ':'."""
     units: list[tuple[str, str]] = []  # (kind of the last block, text)
     carry = ""
     for block in blocks:
@@ -244,8 +246,10 @@ def _build_units(blocks: list[_Block], limit: int) -> list[str]:
             continue
         text = f"{carry}\n\n{block.text}".strip() if carry else block.text
         carry = ""
-        if (block.kind in ("code", "table") and units and units[-1][0] == "prose"
-                and len(units[-1][1]) + 2 + len(text) <= limit):
+        follows_lead_in = bool(units) and units[-1][0] == "prose"
+        is_list = block.kind == "prose" and LIST_ITEM_RE.match(block.text) is not None
+        glue = block.kind in ("code", "table") or (is_list and follows_lead_in and units[-1][1].endswith(":"))
+        if glue and follows_lead_in and len(units[-1][1]) + 2 + len(text) <= limit:
             units[-1] = (block.kind, f"{units[-1][1]}\n\n{text}")
         else:
             units.append((block.kind, text))
@@ -277,7 +281,7 @@ def _pack(units: list[str], target: int, min_chars: int, max_chars: int) -> list
 
 
 def chunk_by_markdown(
-    text: str, target_chars: int = 1200, max_chars: int = 2000, min_chars: int = 300,
+    text: str, target_chars: int = 1600, max_chars: int = 2000, min_chars: int = 300,
 ) -> list[tuple[int, str, str]]:
     """Return (section_index, heading_path, chunk_text) triples for a Markdown document.
 
@@ -338,7 +342,7 @@ def build_chunks(
     overlap: int = 50,
     strategy: Literal["characters", "paragraphs", "markdown"] = "characters",
     max_chars: int | None = None,
-    target_chars: int = 1200,
+    target_chars: int = 1600,
     min_chars: int = 300,
 ) -> list[Chunk]:
     """Build section-aware chunks using the selected strategy.

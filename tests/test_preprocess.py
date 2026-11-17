@@ -106,6 +106,21 @@ class MarkdownChunkingTests(unittest.TestCase):
         self.assertEqual(len(holder), 1)
         self.assertIn("Consider this example:", holder[0])
 
+    def test_list_stays_with_the_lead_in_that_introduces_it(self):
+        items = "\n".join(f"- item {i} " + "x" * 20 for i in range(4))
+        text = "## Uses\n\n" + "filler " * 20 + "\n\nCommon use cases are:\n\n" + items + "\n\n" + "after " * 20
+        chunks = markdown_chunks(text, target_chars=130, max_chars=250, min_chars=20)
+        holder = [chunk for chunk in chunks if "- item 0" in chunk]
+        self.assertEqual(len(holder), 1)
+        self.assertIn("Common use cases are:", holder[0])
+
+    def test_list_after_a_plain_paragraph_is_not_glued(self):
+        items = "\n".join(f"- item {i} " + "x" * 20 for i in range(4))
+        text = "## Uses\n\n" + "filler " * 20 + "\n\nA plain closing sentence.\n\n" + items
+        chunks = markdown_chunks(text, target_chars=130, max_chars=250, min_chars=20)
+        holder = [chunk for chunk in chunks if "- item 0" in chunk]
+        self.assertNotIn("A plain closing sentence.", holder[0])
+
     def test_table_is_not_cut_mid_row_and_oversized_table_repeats_header(self):
         rows = [f"| r{i} | meaning of r{i} |" for i in range(30)]
         table = "\n".join(["| Char | Meaning |", "| --- | --- |", *rows])

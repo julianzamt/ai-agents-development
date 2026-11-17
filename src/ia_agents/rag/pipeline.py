@@ -48,8 +48,8 @@ Return only the final answer, concise and direct. No reasoning, introductions or
 BLOCK_SEPARATOR = "\n\n"
 
 DEFAULT_K = 5
-# Room for DEFAULT_K long (p90 ≈ 1500-char) chunks plus the system prompt (~920), the tags
-# and the question: 5 × ~1550 + ~970 + ~300 ≈ 9000. The budget then only trims when several
+# Room for DEFAULT_K long (p90 ≈ 1617-char) chunks plus the system prompt (~920), the tags
+# and the question: 5 × ~1600 + ~970 + ~300 ≈ 9500. The budget then only trims when several
 # long chunks come back together. Re-measure if chunking changes (corpus/clean.chunks.txt).
 DEFAULT_MAX_PROMPT_CHARS = 9000
 # Chroma L2 distance on the `documents` collection (voyage-4, normalized vectors, so

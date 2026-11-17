@@ -60,7 +60,7 @@ def add_chunking_arguments(parser: argparse.ArgumentParser) -> None:
         help="Paragraphs: grouping limit, oversized paragraphs stay intact (default 500). "
              "Markdown: hard cap per chunk, except code blocks, which are never cut (default 2000)",
     )
-    parser.add_argument("--target-chars", type=int, default=1200, help="Markdown: size sections over the cap are packed toward")
+    parser.add_argument("--target-chars", type=int, default=1600, help="Markdown: size sections over the cap are packed toward")
     parser.add_argument("--min-chars", type=int, default=300, help="Markdown: sections below this are merged with a neighbour")
 
 
