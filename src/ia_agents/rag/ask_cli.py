@@ -14,7 +14,12 @@ from .retrieve_cli import build_where, parse_filter
 
 def print_result(query: str, result: dict) -> None:
     record = result["record"]
-    print(f"\nQuery: {query}\nAnswer: {result['answer']}")
+    print(f"\nQuery: {query}")
+    if record["variants"]:
+        print("Variants:")
+        for variant in record["variants"]:
+            print(f"  - {variant}")
+    print(f"Answer: {result['answer']}")
     if result["cited"]:
         print("Sources:")
         for source in result["cited"]:
@@ -54,6 +59,11 @@ def main(argv=None):
     parser.add_argument("--document-id", help="Search only this document, e.g. Web/JavaScript/Guide/Closures")
     parser.add_argument("--contains", metavar="TEXT", help="Keep only chunks whose text contains TEXT")
     parser.add_argument(
+        "--multi-query", type=int, default=0, metavar="N",
+        help="Also search with N LLM-written rephrasings of each question and merge the results "
+             "(default: 0, off). Costs one extra LLM call per question.",
+    )
+    parser.add_argument(
         "--log", type=Path, default=DEFAULT_LOG_PATH,
         help=f"JSONL file to append one record per question to (default: {DEFAULT_LOG_PATH})",
     )
@@ -64,6 +74,8 @@ def main(argv=None):
         parser.error("-k must be greater than zero.")
     if args.max_distance < 0:
         parser.error("--max-distance must be non-negative.")
+    if args.multi_query < 0:
+        parser.error("--multi-query must be zero or greater.")
     if args.max_prompt_chars <= 0:
         parser.error("--max-prompt-chars must be greater than zero.")
 
@@ -85,7 +97,7 @@ def main(argv=None):
                 query, collection, k=args.k, max_distance=args.max_distance,
                 max_prompt_chars=args.max_prompt_chars,
                 log_path=None if args.no_log else args.log,
-                where=where, where_document=where_document,
+                where=where, where_document=where_document, multi_query=args.multi_query,
             )
         except (ValueError, ChromaError) as exc:
             parser.error(str(exc))

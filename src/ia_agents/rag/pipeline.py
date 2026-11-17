@@ -11,6 +11,7 @@ from ..llm import LLMClient
 from ..llm.config import PROJECT_ROOT
 from ..llm.responses import response_details
 from .embed import search
+from .multiquery import multi_query_search
 
 DEFAULT_LOG_PATH = PROJECT_ROOT / "data" / "rag_log.jsonl"
 
@@ -139,6 +140,7 @@ def rag(
     log_path: Path | None = DEFAULT_LOG_PATH,
     where: dict | None = None,
     where_document: dict | None = None,
+    multi_query: int = 0,
 ) -> dict:
     """Answer a question from the collection, with citations, and log how the answer was built.
 
@@ -148,21 +150,32 @@ def rag(
     "abstained" (the model found the evidence insufficient) or "answered".
     Pass log_path=None to skip logging. ``where`` (metadata) and ``where_document`` (chunk
     text) are Chroma filters applied before ranking, so the top k comes from the allowed set.
+    ``multi_query`` > 0 also searches with that many LLM-written rephrasings of the question
+    and merges the results (one extra LLM call); 0, the default, searches the question alone.
     """
     if not query.strip():
         raise ValueError("query must be a non-empty string.")
+    if multi_query < 0:
+        raise ValueError("multi_query must be zero or greater.")
     # The budget covers the whole input, so the context gets what the fixed parts leave.
     context_budget = max_prompt_chars - len(SYSTEM_PROMPT) - len(build_prompt(query, ""))
     if context_budget <= 0:
         raise ValueError("The system prompt and question alone exceed max_prompt_chars.")
 
-    retrieved = search(query, collection, k=k, where=where, where_document=where_document)
+    variants: list[str] = []
+    if multi_query:
+        llm = llm or LLMClient()
+        retrieved, variants = multi_query_search(
+            query, collection, llm, multi_query, k, where=where, where_document=where_document,
+        )
+    else:
+        retrieved = search(query, collection, k=k, where=where, where_document=where_document)
     relevant = [chunk for chunk in retrieved if chunk["distance"] <= max_distance]
     context, sources = build_context(relevant, context_budget)
 
     valid: list[int] = []
     invalid: list[int] = []
-    provider = None
+    provider = llm.provider if multi_query else None
     if not sources:
         outcome, answer = "no_evidence", NO_EVIDENCE_MESSAGE
     else:
@@ -183,8 +196,9 @@ def rag(
         "settings": {
             "k": k, "max_distance": max_distance,
             "max_prompt_chars": max_prompt_chars, "context_budget": context_budget,
-            "where": where, "where_document": where_document,
+            "where": where, "where_document": where_document, "multi_query": multi_query,
         },
+        "variants": variants,
         "retrieved": [
             {"chunk_id": chunk["chunk_id"], "distance": round(chunk["distance"], 4)}
             for chunk in retrieved

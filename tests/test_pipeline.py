@@ -4,7 +4,7 @@ import io
 import json
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -229,6 +229,23 @@ class AskCliTests(unittest.TestCase):
             {"section_id": "section_04"}, {"document_id": "Web/JavaScript/Guide/Closures"},
         ]})
         self.assertEqual(options["where_document"], {"$contains": "closure"})
+
+    def test_multi_query_is_off_by_default_and_passed_when_given(self):
+        result, _, _ = run_rag([])
+        _, rag_call = self.run_ask(["q", "--no-log"], result)
+        self.assertEqual(rag_call.call_args.kwargs["multi_query"], 0)
+        _, rag_call = self.run_ask(["q", "--no-log", "--multi-query", "3"], result)
+        self.assertEqual(rag_call.call_args.kwargs["multi_query"], 3)
+
+    def test_prints_the_variants_when_there_are_any(self):
+        result, _, _ = run_rag([make_chunk(1)])
+        result["record"]["variants"] = ["closure scope"]
+        output, _ = self.run_ask(["q", "--no-log"], result)
+        self.assertIn("Variants:\n  - closure scope", output)
+
+    def test_rejects_a_negative_multi_query(self):
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            ask_cli.main(["q", "--multi-query", "-1"])
 
 
 if __name__ == "__main__":

@@ -192,6 +192,16 @@ For each question, `rag()` in `ia_agents.rag.pipeline`:
 5. Checks every `[n]` against the evidence provided. Code is ignored, so `arr[0]` is not a
    citation. Citations of evidence that was never provided are reported.
 
+Optional `--multi-query N` (off by default) adds a step before 1: the LLM writes N rephrasings
+of the question, each is searched with the same `-k`, and the results are merged keeping each
+chunk's best distance and the closest `-k` overall. It can raise recall when the wording of
+the question differs from the corpus, at the cost of one extra LLM call per question. The
+variants are printed and logged under `variants`.
+
+```bash
+ask --multi-query 3 "How do I stop someone from tricking the bot with hidden instructions?"
+```
+
 Each question appends a JSON line to `data/rag_log.jsonl` (`--log FILE` to change it,
 `--no-log` to skip it). The record lists the chunks retrieved with their distances, those
 that passed the threshold, those in the context, those cited, any invalid citations, the
@@ -202,6 +212,24 @@ The defaults were measured on the `documents` collection (MDN guide, `voyage-4`,
 distance). There, in-domain questions score ≤ 1.00, ambiguous ones 1.00–1.12 and
 out-of-domain ones ≥ 1.33. Re-measure the threshold with `retrieve` and the budget with
 `chunk` if the embedding model, the metric or the chunking changes.
+
+### Why retrieved chunks are not deduplicated
+
+Dropping near-identical chunks before building the context was evaluated and not adopted.
+On 10 direct questions, the cosine similarity between the vectors of the 5 retrieved chunks
+(100 pairs) had a median of 0.79. Only one pair was a true duplicate (0.99): the boundary
+assertions table, repeated in the regular expressions cheat sheet and in the assertions
+page. It did not change the answer.
+
+The 0.85 threshold used for toy corpora is unusable here: 20 of 100 pairs exceed it, and
+the ones above 0.90 were neighbouring sections on the same topic that say different things
+(for example, the two halves of "Objects > Properties"). Dropping one of them would lose
+evidence. Only a threshold near 0.97 separates real duplicates, and it would act on about
+one query in ten.
+
+Real duplicates come from the corpus, so fix them at ingestion (exclude or merge the
+repeated page), not on every query. Re-measure on a larger question set if duplicates start
+to appear in the logs.
 
 ## Tests
 
