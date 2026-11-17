@@ -26,8 +26,10 @@ CODE_RE = re.compile(r"(`{3,}|~{3,}).*?(?:\1|\Z)|(`+).*?\2", re.S)
 # rag() compares answers against it, so prompt and code share one constant.
 UNKNOWN_ANSWER = "I don't know the answer."
 
-# Returned to the user when nothing passes the relevance threshold, or the model abstains.
+# Returned to the user when nothing passes the relevance threshold.
 NO_EVIDENCE_MESSAGE = "I found no sufficient evidence in the corpus to answer this question."
+# Returned when fragments passed the threshold but the model judged them insufficient.
+ABSTAINED_MESSAGE = "The retrieved fragments do not answer this question."
 
 SYSTEM_PROMPT = f"""You are a question-answering assistant that relies exclusively on the evidence provided.
 
@@ -109,6 +111,7 @@ def extract_citations(answer: str, sources: list[dict]) -> tuple[list[int], list
     prose = CODE_RE.sub("", answer)
     cited = {int(ref) for group in CITATION_RE.findall(prose) for ref in group.split(",")}
     available = {source["ref"] for source in sources}
+    # (valid, invalid): cited refs that match a source, then cited refs with no source behind them.
     return sorted(cited & available), sorted(cited - available)
 
 
@@ -168,7 +171,7 @@ def rag(
         result = llm.generate(build_prompt(query, context), system=SYSTEM_PROMPT, temperature=0.0)
         text = response_details(provider, result.response)[0].strip()
         if _is_unknown(text):
-            outcome, answer = "abstained", NO_EVIDENCE_MESSAGE
+            outcome, answer = "abstained", ABSTAINED_MESSAGE
         else:
             outcome, answer = "answered", text
             valid, invalid = extract_citations(text, sources)

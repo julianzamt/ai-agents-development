@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from ia_agents.rag import ask_cli
 from ia_agents.rag.pipeline import (
-    NO_EVIDENCE_MESSAGE, SYSTEM_PROMPT, UNKNOWN_ANSWER,
+    ABSTAINED_MESSAGE, NO_EVIDENCE_MESSAGE, SYSTEM_PROMPT, UNKNOWN_ANSWER,
     build_context, build_prompt, extract_citations, log_query, rag,
 )
 
@@ -137,12 +137,12 @@ class RagTests(unittest.TestCase):
         self.assertEqual(result["record"]["passed_threshold"], [])
         self.assertEqual(len(result["record"]["retrieved"]), 2)
 
-    def test_model_abstention_becomes_the_no_evidence_message(self):
+    def test_model_abstention_becomes_the_abstained_message(self):
         for reply in (UNKNOWN_ANSWER, "i don't know the answer"):
             with self.subTest(reply=reply):
                 result, llm, _ = run_rag([make_chunk(1)], answer=reply)
                 self.assertEqual(len(llm.calls), 1)
-                self.assertEqual(result["answer"], NO_EVIDENCE_MESSAGE)
+                self.assertEqual(result["answer"], ABSTAINED_MESSAGE)
                 self.assertEqual(result["record"]["outcome"], "abstained")
                 self.assertEqual(result["cited"], [])
 
