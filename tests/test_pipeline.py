@@ -130,12 +130,17 @@ class LogQueryTests(unittest.TestCase):
 
 class RagTests(unittest.TestCase):
     def test_no_chunk_within_threshold_skips_the_llm(self):
-        result, llm, _ = run_rag([make_chunk(1, distance=1.5), make_chunk(2, distance=1.4)])
+        result, llm, _ = run_rag([make_chunk(1, distance=1.5), make_chunk(2, distance=1.4)], max_distance=1.2)
         self.assertEqual(llm.calls, [])
         self.assertEqual(result["answer"], NO_EVIDENCE_MESSAGE)
         self.assertEqual(result["record"]["outcome"], "no_evidence")
         self.assertEqual(result["record"]["passed_threshold"], [])
         self.assertEqual(len(result["record"]["retrieved"]), 2)
+
+    def test_no_threshold_by_default_keeps_every_retrieved_chunk(self):
+        result, llm, _ = run_rag([make_chunk(1, distance=1.5), make_chunk(2, distance=1.9)])
+        self.assertEqual(len(llm.calls), 1)
+        self.assertEqual(len(result["record"]["passed_threshold"]), 2)
 
     def test_model_abstention_becomes_the_abstained_message(self):
         for reply in (UNKNOWN_ANSWER, "i don't know the answer"):
@@ -148,7 +153,7 @@ class RagTests(unittest.TestCase):
 
     def test_answer_maps_citations_to_chunks(self):
         chunks = [make_chunk(1, 0.6), make_chunk(2, 0.7), make_chunk(3, 1.3)]
-        result, llm, _ = run_rag(chunks, answer="Closures [1]. Also [2] and [5].")
+        result, llm, _ = run_rag(chunks, answer="Closures [1]. Also [2] and [5].", max_distance=1.2)
         record = result["record"]
         self.assertEqual(record["outcome"], "answered")
         self.assertEqual(record["passed_threshold"], [chunks[0]["chunk_id"], chunks[1]["chunk_id"]])

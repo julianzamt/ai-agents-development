@@ -1,0 +1,247 @@
+[
+  {
+    "question": "What is a closure in JavaScript?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Closures-000-3f89c664"
+    ],
+    "must_answer": true,
+    "kind": "direct"
+  },
+  {
+    "question": "During module linking, what does the engine do for each imported name?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Modules/Module_graph-005-e9c7a06d"
+    ],
+    "must_answer": true,
+    "kind": "direct"
+  },
+  {
+    "question": "What does reduce() do when no initialValue is given?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Indexed_collections-014-bc4e0c55"
+    ],
+    "must_answer": true,
+    "kind": "direct"
+  },
+  {
+    "question": "Which three factors classify a property of a JavaScript object?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Enumerability_and_ownership_of_properties-000-993f3f18"
+    ],
+    "must_answer": true,
+    "kind": "direct"
+  },
+  {
+    "question": "What happens to an ArrayBuffer when it is passed to another execution context, compared to a SharedArrayBuffer?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Typed_arrays-002-2c89ac82"
+    ],
+    "must_answer": true,
+    "kind": "direct"
+  },
+  {
+    "question": "How does Object.is() differ from strict equality?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Equality_comparisons_and_sameness-000-3376bcab"
+    ],
+    "must_answer": true,
+    "kind": "direct"
+  },
+  {
+    "question": "How does the ?? operator differ from ||?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Expressions_and_operators-021-b0e2f524"
+    ],
+    "must_answer": true,
+    "kind": "direct"
+  },
+  {
+    "question": "What does the rest parameter syntax do?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Functions-017-9de6b6eb"
+    ],
+    "must_answer": true,
+    "kind": "direct"
+  },
+  {
+    "question": "What is the value of a function parameter when the caller does not pass it?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Functions-016-ccc06c97"
+    ],
+    "must_answer": true,
+    "kind": "direct"
+  },
+  {
+    "question": "What must an object implement to be iterable?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Iterators_and_generators-004-abf31e31"
+    ],
+    "must_answer": true,
+    "kind": "direct"
+  },
+  {
+    "question": "What does the optional chaining operator do?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Expressions_and_operators-034-e19e885a"
+    ],
+    "must_answer": true,
+    "kind": "direct"
+  },
+  {
+    "question": "What does the import() expression return?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Modules-022-ccce9cf6"
+    ],
+    "must_answer": true,
+    "kind": "direct"
+  },
+  {
+    "question": "Why does the documentation advise avoiding WeakRef?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Memory_management-015-4d31f340"
+    ],
+    "must_answer": true,
+    "kind": "direct"
+  },
+  {
+    "question": "How do I match words written in Russian or Arabic with a regex?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Regular_expressions/Character_classes-007-27d09e51"
+    ],
+    "must_answer": true,
+    "kind": "colloquial"
+  },
+  {
+    "question": "How can I give Node.js more heap memory when my app runs out?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Memory_management-010-b1eaf37d"
+    ],
+    "must_answer": true,
+    "kind": "colloquial"
+  },
+  {
+    "question": "How can I make an object return a default value for properties that don't exist?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Meta_programming-000-ca916a06"
+    ],
+    "must_answer": true,
+    "kind": "colloquial"
+  },
+  {
+    "question": "Why do I get a SyntaxError when I read a #private field from outside its class?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Using_classes-011-19282654"
+    ],
+    "must_answer": true,
+    "kind": "colloquial"
+  },
+  {
+    "question": "What happens if I log a const before the line that declares it?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Grammar_and_types-007-9c3fedd7"
+    ],
+    "must_answer": true,
+    "kind": "colloquial"
+  },
+  {
+    "question": "Does a Map treat NaN as equal to NaN when comparing keys?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Keyed_collections-007-7a594c13"
+    ],
+    "must_answer": true,
+    "kind": "colloquial"
+  },
+  {
+    "question": "Why does 0.1 + 0.2 not equal 0.3 in JavaScript?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Language_overview-002-1ba8dfee"
+    ],
+    "must_answer": true,
+    "kind": "colloquial"
+  },
+  {
+    "question": "Which regex assertions match the start and end of the input, and how does the multiline flag change them?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Regular_expressions/Assertions-001-1e50de8f",
+      "Web/JavaScript/Guide/Regular_expressions/Cheatsheet-007-8d2520b9"
+    ],
+    "must_answer": true,
+    "kind": "multi_chunk"
+  },
+  {
+    "question": "Why does 42 + \"1\" give \"421\" instead of throwing an error?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Data_structures-001-8cae827e",
+      "Web/JavaScript/Guide/Grammar_and_types-012-c4aa9211"
+    ],
+    "must_answer": true,
+    "kind": "multi_chunk"
+  },
+  {
+    "question": "How do I show a date in a different calendar system or time zone?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Internationalization-017-85446565",
+      "Web/JavaScript/Guide/Internationalization-018-37233abc"
+    ],
+    "must_answer": true,
+    "kind": "multi_chunk"
+  },
+  {
+    "question": "How do I read the parts a regex matched by name instead of by number?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Regular_expressions/Groups_and_backreferences-001-79f44f89",
+      "Web/JavaScript/Guide/Regular_expressions/Groups_and_backreferences-004-9a39ec3b",
+      "Web/JavaScript/Guide/Regular_expressions/Cheatsheet-010-372bc3e2"
+    ],
+    "must_answer": true,
+    "kind": "multi_chunk"
+  },
+  {
+    "question": "How do I back up a PostgreSQL database?",
+    "relevant_chunks": [],
+    "must_answer": false,
+    "kind": "out_of_domain"
+  },
+  {
+    "question": "Who invented JavaScript?",
+    "relevant_chunks": [],
+    "must_answer": false,
+    "kind": "out_of_domain"
+  },
+  {
+    "question": "When does Promise.any() reject, and with what error?",
+    "relevant_chunks": [],
+    "must_answer": false,
+    "kind": "missing_detail"
+  },
+  {
+    "question": "What is the time complexity of Array.prototype.sort()?",
+    "relevant_chunks": [],
+    "must_answer": false,
+    "kind": "missing_detail"
+  },
+  {
+    "question": "How do I deep clone an object with structuredClone()?",
+    "relevant_chunks": [],
+    "must_answer": false,
+    "kind": "missing_detail"
+  },
+  {
+    "question": "What does Array.prototype.toSorted() do differently from sort()?",
+    "relevant_chunks": [],
+    "must_answer": false,
+    "kind": "missing_detail"
+  },
+  {
+    "question": "What is the default heap memory limit of Node.js?",
+    "relevant_chunks": [],
+    "must_answer": false,
+    "kind": "missing_detail"
+  },
+  {
+    "question": "What is the maximum timeout I can pass to Atomics.wait()?",
+    "relevant_chunks": [],
+    "must_answer": false,
+    "kind": "missing_detail"
+  }
+]

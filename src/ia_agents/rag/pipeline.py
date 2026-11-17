@@ -16,7 +16,7 @@ from .multiquery import multi_query_search
 DEFAULT_LOG_PATH = PROJECT_ROOT / "data" / "rag_log.jsonl"
 
 # A citation is [n] or a list such as [1, 3]. Code is removed before matching, because
-# answers about JavaScript contain index expressions like arr[0].
+# answers about code contain index expressions like arr[0].
 CITATION_RE = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
 # Fences (``` or ~~~) close with the same marker or run to the end of the text, so an unclosed
 # block still hides its brackets. Inline code closes with the same run of backticks, so an
@@ -40,7 +40,7 @@ MANDATORY RULES:
 - Before answering, check that the evidence directly answers the question. Do not fill gaps with your own knowledge, inferences or assumptions.
 - If the evidence does not fully answer the question, or it is contradictory, reply exactly: {UNKNOWN_ANSWER}
   In that case, add no explanation, justification or partial information.
-- Every claim must cite the evidence block it comes from with its number in square brackets, e.g. "Closures capture variables by reference [2]." Cite only numbers that exist in the evidence.
+- Every claim must cite the evidence block it comes from with its number in square brackets, e.g. "The service retries failed requests [2]." Cite only numbers that exist in the evidence.
 
 OUTPUT FORMAT:
 Return only the final answer, concise and direct. No reasoning, introductions or extra comments.
@@ -48,16 +48,11 @@ Return only the final answer, concise and direct. No reasoning, introductions or
 
 BLOCK_SEPARATOR = "\n\n"
 
+# Neutral fallbacks. Values tuned to a corpus and an embedding model (threshold, prompt budget)
+# live in rag_config.json; re-measure them if the corpus, embedding model, metric or chunking changes.
 DEFAULT_K = 5
-# Room for DEFAULT_K long (p90 ≈ 1617-char) chunks plus the system prompt (~920), the tags
-# and the question: 5 × ~1600 + ~970 + ~300 ≈ 9500. The budget then only trims when several
-# long chunks come back together. Re-measure if chunking changes (corpus/clean.chunks.txt).
-DEFAULT_MAX_PROMPT_CHARS = 9000
-# Chroma L2 distance on the `documents` collection (voyage-4, normalized vectors, so
-# distance = 2 × (1 − cosine)). Measured top-5 distances: in-domain ≤ 1.00, ambiguous
-# 1.00-1.12, out-of-domain ≥ 1.33. 1.2 sits in that gap. Re-measure if the embedding
-# model, the metric or the chunking changes.
-DEFAULT_MAX_DISTANCE = 1.2
+DEFAULT_MAX_PROMPT_CHARS = 6000
+DEFAULT_MAX_DISTANCE = None  # no relevance threshold
 
 
 def build_context(chunks: list[dict], max_chars: int) -> tuple[str, list[dict]]:
@@ -134,7 +129,7 @@ def rag(
     query: str,
     collection: chromadb.Collection,
     k: int = DEFAULT_K,
-    max_distance: float = DEFAULT_MAX_DISTANCE,
+    max_distance: float | None = DEFAULT_MAX_DISTANCE,
     max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS,
     llm: LLMClient | None = None,
     log_path: Path | None = DEFAULT_LOG_PATH,
@@ -144,7 +139,7 @@ def rag(
 ) -> dict:
     """Answer a question from the collection, with citations, and log how the answer was built.
 
-    Steps: retrieve the top k chunks, keep those within max_distance, fit them into what
+    Steps: retrieve the top k chunks, keep those within max_distance (all, if None), fit them into what
     max_prompt_chars leaves after the system prompt and question, generate, check citations
     and log. The outcome is "no_evidence" (nothing passed, the LLM is not called),
     "abstained" (the model found the evidence insufficient) or "answered".
@@ -170,7 +165,7 @@ def rag(
         )
     else:
         retrieved = search(query, collection, k=k, where=where, where_document=where_document)
-    relevant = [chunk for chunk in retrieved if chunk["distance"] <= max_distance]
+    relevant = [chunk for chunk in retrieved if max_distance is None or chunk["distance"] <= max_distance]
     context, sources = build_context(relevant, context_budget)
 
     valid: list[int] = []

@@ -10,6 +10,7 @@ import chromadb
 from chromadb.errors import NotFoundError
 
 from .chunk_cli import add_chunking_arguments, load_chunks
+from .config import config_for
 from .embed import collection_embedding, embedding_metadata, get_embedding_provider
 
 UPSERT_BATCH = 1000  # stay well below ChromaDB's maximum batch size
@@ -17,12 +18,13 @@ UPSERT_BATCH = 1000  # stay well below ChromaDB's maximum batch size
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    add_chunking_arguments(parser)
+    config = config_for(parser, argv)
+    add_chunking_arguments(parser, config)
     parser.add_argument(
-        "--persist-directory", type=Path, default=Path("chroma_db"),
-        help="ChromaDB persistence directory (default: ./chroma_db)",
+        "--persist-directory", type=Path, default=Path(config["persist_directory"]),
+        help=f"ChromaDB persistence directory (default: {config['persist_directory']})",
     )
-    parser.add_argument("--collection", default="documents", help="ChromaDB collection name")
+    parser.add_argument("--collection", default=config["collection"], help=f"ChromaDB collection name (default: {config['collection']})")
     parser.add_argument("--print-chunks", action="store_true", help="Print chunk metadata and text")
     args = parser.parse_args(argv)
 

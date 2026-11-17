@@ -11,6 +11,7 @@ from collections import Counter
 from pathlib import Path
 from typing import NamedTuple
 
+from .config import add_config_argument, config_for
 from .preprocess import Chunk, build_chunks, parse_front_matter
 
 TEXT_SUFFIXES = (".md", ".txt")
@@ -38,8 +39,11 @@ def format_chunks_report(chunks, settings: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def add_chunking_arguments(parser: argparse.ArgumentParser) -> None:
-    """The input and chunking options shared by `chunk` and `ingest`."""
+def add_chunking_arguments(parser: argparse.ArgumentParser, config: dict) -> None:
+    """The input and chunking options shared by `chunk` and `ingest`; defaults come from config."""
+    chunking = config["chunking"]
+    add_config_argument(parser)
+    parser.set_defaults(markdown_max_chars=chunking["max_chars"])
     parser.add_argument(
         "input", type=Path,
         help="UTF-8 text file, or a directory searched recursively for .md and .txt files",
@@ -58,10 +62,16 @@ def add_chunking_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--max-chars", type=int,
         help="Paragraphs: grouping limit, oversized paragraphs stay intact (default 500). "
-             "Markdown: hard cap per chunk, except code blocks, which are never cut (default 2000)",
+             f"Markdown: hard cap per chunk, except code blocks, which are never cut (default {chunking['max_chars']})",
     )
-    parser.add_argument("--target-chars", type=int, default=1600, help="Markdown: size sections over the cap are packed toward")
-    parser.add_argument("--min-chars", type=int, default=300, help="Markdown: sections below this are merged with a neighbour")
+    parser.add_argument(
+        "--target-chars", type=int, default=chunking["target_chars"],
+        help=f"Markdown: size sections over the cap are packed toward (default {chunking['target_chars']})",
+    )
+    parser.add_argument(
+        "--min-chars", type=int, default=chunking["min_chars"],
+        help=f"Markdown: sections below this are merged with a neighbour (default {chunking['min_chars']})",
+    )
 
 
 class Loaded(NamedTuple):
@@ -81,7 +91,7 @@ def load_chunks(parser: argparse.ArgumentParser, args: argparse.Namespace) -> Lo
         parser.error("Require chunk-size > 0 and 0 <= overlap < chunk-size.")
     if args.max_chars is not None and args.max_chars <= 0:
         parser.error("max-chars must be greater than zero.")
-    max_chars = args.max_chars if args.max_chars is not None else (2000 if args.strategy == "markdown" else 500)
+    max_chars = args.max_chars if args.max_chars is not None else (args.markdown_max_chars if args.strategy == "markdown" else 500)
     if args.strategy == "markdown" and not (0 < args.min_chars <= args.target_chars <= max_chars):
         parser.error("Require 0 < min-chars <= target-chars <= max-chars.")
 
@@ -115,7 +125,7 @@ def load_chunks(parser: argparse.ArgumentParser, args: argparse.Namespace) -> Lo
             path.relative_to(args.input).with_suffix("").as_posix() if directory_mode else path.stem
         )
         if args.strategy == "markdown" and not args.document_id:
-            # Corpus files are all named index.md: the front matter slug identifies the document.
+            # Files may share a name (e.g. index.md): the front matter slug identifies the document.
             document_id = parse_front_matter(text)[0].get("slug", document_id)
         if document_id in documents:
             parser.error(f"Document ID {document_id!r} is used by both {documents[document_id]} and {path}.")
@@ -141,7 +151,8 @@ def load_chunks(parser: argparse.ArgumentParser, args: argparse.Namespace) -> Lo
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    add_chunking_arguments(parser)
+    config = config_for(parser, argv)
+    add_chunking_arguments(parser, config)
     parser.add_argument(
         "--output", type=Path,
         help="Report file (default: <directory>.chunks.txt next to the input directory, "

@@ -29,3 +29,4 @@ def diagnose_retrieval(
         "retrieved": retrieved,
         "chunks": chunks,
     }
+

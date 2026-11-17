@@ -6,9 +6,8 @@ from pathlib import Path
 import chromadb
 from chromadb.errors import ChromaError
 
-from .pipeline import (
-    DEFAULT_K, DEFAULT_LOG_PATH, DEFAULT_MAX_DISTANCE, DEFAULT_MAX_PROMPT_CHARS, rag,
-)
+from .config import add_config_argument, config_for
+from .pipeline import DEFAULT_LOG_PATH, rag
 from .retrieve_cli import build_where, parse_filter
 
 
@@ -35,28 +34,31 @@ def print_result(query: str, result: dict) -> None:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    config = config_for(parser, argv)
+    retrieval = config["retrieval"]
+    add_config_argument(parser)
     parser.add_argument("queries", nargs="+", help="One or more questions")
     parser.add_argument(
-        "--persist-directory", type=Path, default=Path("chroma_db"),
-        help="ChromaDB persistence directory (default: ./chroma_db)",
+        "--persist-directory", type=Path, default=Path(config["persist_directory"]),
+        help=f"ChromaDB persistence directory (default: {config['persist_directory']})",
     )
-    parser.add_argument("--collection", default="documents", help="ChromaDB collection name")
-    parser.add_argument("-k", type=int, default=DEFAULT_K, help=f"Chunks to retrieve (default: {DEFAULT_K})")
+    parser.add_argument("--collection", default=config["collection"], help=f"ChromaDB collection name (default: {config['collection']})")
+    parser.add_argument("-k", type=int, default=retrieval["k"], help=f"Chunks to retrieve (default: {retrieval['k']})")
     parser.add_argument(
-        "--max-distance", type=float, default=DEFAULT_MAX_DISTANCE,
-        help=f"Relevance threshold: drop chunks with a larger Chroma distance (default: {DEFAULT_MAX_DISTANCE})",
+        "--max-distance", type=float, default=retrieval["max_distance"],
+        help=f"Relevance threshold: drop chunks with a larger Chroma distance (default: {retrieval['max_distance']}, None keeps all)",
     )
     parser.add_argument(
-        "--max-prompt-chars", type=int, default=DEFAULT_MAX_PROMPT_CHARS,
+        "--max-prompt-chars", type=int, default=retrieval["max_prompt_chars"],
         help=f"Budget for the whole prompt: system prompt, question and evidence "
-             f"(default: {DEFAULT_MAX_PROMPT_CHARS})",
+             f"(default: {retrieval['max_prompt_chars']})",
     )
     parser.add_argument(
         "--filter", dest="filters", action="append", default=[], type=parse_filter,
         metavar="KEY[:OP]=VALUE",
         help="Keep only chunks whose metadata matches; same syntax as `retrieve --filter`. Repeatable.",
     )
-    parser.add_argument("--document-id", help="Search only this document, e.g. Web/JavaScript/Guide/Closures")
+    parser.add_argument("--document-id", help="Search only this document (its document_id metadata)")
     parser.add_argument("--contains", metavar="TEXT", help="Keep only chunks whose text contains TEXT")
     parser.add_argument(
         "--multi-query", type=int, default=0, metavar="N",
@@ -72,7 +74,7 @@ def main(argv=None):
 
     if args.k <= 0:
         parser.error("-k must be greater than zero.")
-    if args.max_distance < 0:
+    if args.max_distance is not None and args.max_distance < 0:
         parser.error("--max-distance must be non-negative.")
     if args.multi_query < 0:
         parser.error("--multi-query must be zero or greater.")

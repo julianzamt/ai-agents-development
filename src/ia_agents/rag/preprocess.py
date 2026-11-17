@@ -281,7 +281,7 @@ def _pack(units: list[str], target: int, min_chars: int, max_chars: int) -> list
 
 
 def chunk_by_markdown(
-    text: str, target_chars: int = 1600, max_chars: int = 2000, min_chars: int = 300,
+    text: str, target_chars: int = 1200, max_chars: int = 2000, min_chars: int = 300,
 ) -> list[tuple[int, str, str]]:
     """Return (section_index, heading_path, chunk_text) triples for a Markdown document.
 
@@ -342,7 +342,7 @@ def build_chunks(
     overlap: int = 50,
     strategy: Literal["characters", "paragraphs", "markdown"] = "characters",
     max_chars: int | None = None,
-    target_chars: int = 1600,
+    target_chars: int = 1200,
     min_chars: int = 300,
 ) -> list[Chunk]:
     """Build section-aware chunks using the selected strategy.

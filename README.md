@@ -94,6 +94,17 @@ output with `schema_model=SupportQuery`; both can be used together.
 order. Each item uses the single-query generation flow. The CLI saves history for
 individual requests only.
 
+## Configuration
+
+Values tuned to a corpus and its embedding model live in `rag_config.json` at the project
+root, not in the code: `collection`, `persist_directory`, `eval_dataset`, `retrieval`
+(`k`, `max_distance`, `max_prompt_chars`) and `chunking` (`min_chars`, `target_chars`,
+`max_chars`). `ask`, `retrieve`, `d-retrieval`, `chunk` and `ingest` read it, and
+`--config FILE` selects another file. Precedence: command-line flag, then the file, then
+neutral built-in defaults (no distance threshold, `k=5`, 6000-character prompt, chunks of
+300/1200/2000). Unknown keys and wrong types are rejected. Re-measure `max_distance` and
+`max_prompt_chars` if the corpus, the embedding model or the chunking changes.
+
 ## Document ingestion
 
 Embedding provider defaults to Google. Set `EMBEDDING_PROVIDER` to `google`,

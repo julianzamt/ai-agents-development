@@ -1,0 +1,7 @@
+{
+  "collection": "documents",
+  "persist_directory": "chroma_db",
+  "eval_dataset": "corpus/clean.eval.json",
+  "retrieval": {"k": 5, "max_distance": 1.2, "max_prompt_chars": 9000},
+  "chunking": {"min_chars": 300, "target_chars": 1600, "max_chars": 2000}
+}

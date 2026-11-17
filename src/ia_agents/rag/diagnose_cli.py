@@ -7,8 +7,8 @@ from pathlib import Path
 import chromadb
 from chromadb.errors import ChromaError
 
+from .config import add_config_argument, config_for
 from .diagnose import diagnose_retrieval
-from .pipeline import DEFAULT_K
 
 
 def print_result(query: str, expected_chunk_id: str, result: dict) -> None:
@@ -25,14 +25,17 @@ def print_result(query: str, expected_chunk_id: str, result: dict) -> None:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    config = config_for(parser, argv)
+    add_config_argument(parser)
     parser.add_argument("query", help="The question to retrieve for")
     parser.add_argument("chunk_id", help="ID of the chunk expected in the results")
     parser.add_argument(
-        "--persist-directory", type=Path, default=Path("chroma_db"),
-        help="ChromaDB persistence directory (default: ./chroma_db)",
+        "--persist-directory", type=Path, default=Path(config["persist_directory"]),
+        help=f"ChromaDB persistence directory (default: {config['persist_directory']})",
     )
-    parser.add_argument("--collection", default="documents", help="ChromaDB collection name")
-    parser.add_argument("-k", type=int, default=DEFAULT_K, help=f"Chunks to retrieve (default: {DEFAULT_K})")
+    parser.add_argument("--collection", default=config["collection"], help=f"ChromaDB collection name (default: {config['collection']})")
+    k = config["retrieval"]["k"]
+    parser.add_argument("-k", type=int, default=k, help=f"Chunks to retrieve (default: {k})")
     args = parser.parse_args(argv)
 
     if args.k <= 0:

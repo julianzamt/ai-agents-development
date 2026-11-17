@@ -6,6 +6,7 @@ from pathlib import Path
 import chromadb
 from chromadb.errors import ChromaError
 
+from .config import add_config_argument, config_for
 from .embed import collection_embedding, get_chunks, search
 
 FILTER_OPERATORS = {
@@ -70,15 +71,17 @@ def print_chunk(result: dict, rank: int | None = None) -> None:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    config = config_for(parser, argv)
+    add_config_argument(parser)
     parser.add_argument(
         "queries", nargs="*",
         help="One or more search queries (leave empty when using --chunk-id)",
     )
     parser.add_argument(
-        "--persist-directory", type=Path, default=Path("chroma_db"),
-        help="ChromaDB persistence directory (default: ./chroma_db)",
+        "--persist-directory", type=Path, default=Path(config["persist_directory"]),
+        help=f"ChromaDB persistence directory (default: {config['persist_directory']})",
     )
-    parser.add_argument("--collection", default="documents", help="ChromaDB collection name")
+    parser.add_argument("--collection", default=config["collection"], help=f"ChromaDB collection name (default: {config['collection']})")
     parser.add_argument("-k", type=int, default=3, help="Matches per query (default: 3)")
     parser.add_argument(
         "--max-distance", type=float,
@@ -87,7 +90,7 @@ def main(argv=None):
     parser.add_argument(
         "--filter", dest="filters", action="append", default=[], type=parse_filter,
         metavar="KEY[:OP]=VALUE",
-        help="Keep only chunks whose metadata KEY matches, e.g. --filter source=guia-apis. "
+        help="Keep only chunks whose metadata KEY matches, e.g. --filter source=my-doc. "
              "OP is eq (default), ne, in, nin, gt, gte, lt or lte; for in/nin give a "
              "comma-separated VALUE, e.g. --filter tema:in=apis,rag. Repeat to require "
              "several (all must match).",
