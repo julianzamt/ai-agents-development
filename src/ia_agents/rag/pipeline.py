@@ -17,7 +17,10 @@ DEFAULT_LOG_PATH = PROJECT_ROOT / "data" / "rag_log.jsonl"
 # A citation is [n] or a list such as [1, 3]. Code is removed before matching, because
 # answers about JavaScript contain index expressions like arr[0].
 CITATION_RE = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
-CODE_RE = re.compile(r"```.*?```|`[^`\n]*`", re.S)
+# Fences (``` or ~~~) close with the same marker or run to the end of the text, so an unclosed
+# block still hides its brackets. Inline code closes with the same run of backticks, so an
+# unmatched single backtick in prose does not swallow the rest of the answer.
+CODE_RE = re.compile(r"(`{3,}|~{3,}).*?(?:\1|\Z)|(`+).*?\2", re.S)
 
 # Exact phrase the model must use when the evidence cannot answer the question.
 # rag() compares answers against it, so prompt and code share one constant.
@@ -42,12 +45,11 @@ Return only the final answer, concise and direct. No reasoning, introductions or
 
 BLOCK_SEPARATOR = "\n\n"
 
-DEFAULT_K = 3
+DEFAULT_K = 5
 # Room for DEFAULT_K long (p90 ≈ 1500-char) chunks plus the system prompt (~920), the tags
-# and the question: 3 × ~1550 + ~970 + ~300 ≈ 6000. The budget then only trims when several
-# long chunks come back together. Re-measure if chunking changes (corpus/clean.chunks.txt)
-# or once Clase 7 evaluates answer quality.
-DEFAULT_MAX_PROMPT_CHARS = 6000
+# and the question: 5 × ~1550 + ~970 + ~300 ≈ 9000. The budget then only trims when several
+# long chunks come back together. Re-measure if chunking changes (corpus/clean.chunks.txt).
+DEFAULT_MAX_PROMPT_CHARS = 9000
 # Chroma L2 distance on the `documents` collection (voyage-4, normalized vectors, so
 # distance = 2 × (1 − cosine)). Measured top-5 distances: in-domain ≤ 1.00, ambiguous
 # 1.00-1.12, out-of-domain ≥ 1.33. 1.2 sits in that gap. Re-measure if the embedding

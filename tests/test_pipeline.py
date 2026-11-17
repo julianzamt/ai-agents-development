@@ -97,6 +97,22 @@ class ExtractCitationsTests(unittest.TestCase):
         answer = "Read `arr[0]` [2].\n```js\nconst x = list[5];\n```\nSee [3]."
         self.assertEqual(extract_citations(answer, self.SOURCES), ([2, 3], []))
 
+    def test_unclosed_fence_hides_everything_after_it(self):
+        answer = "Answer [1].\n```js\nconst a = b[2];\n[3]"
+        self.assertEqual(extract_citations(answer, self.SOURCES), ([1], []))
+
+    def test_tilde_fence_hides_its_brackets(self):
+        answer = "Ok [1].\n~~~\nlist[2]\n~~~\nSee [3]."
+        self.assertEqual(extract_citations(answer, self.SOURCES), ([1, 3], []))
+
+    def test_double_backtick_inline_code_hides_its_brackets(self):
+        answer = "Use ``arr[1]`` here [2]."
+        self.assertEqual(extract_citations(answer, self.SOURCES), ([2], []))
+
+    def test_unmatched_backtick_does_not_hide_the_rest(self):
+        answer = "It's a `typo [1]. Also [2]."
+        self.assertEqual(extract_citations(answer, self.SOURCES), ([1, 2], []))
+
     def test_answer_without_citations(self):
         self.assertEqual(extract_citations("No citations.", self.SOURCES), ([], []))
 
@@ -151,7 +167,7 @@ class RagTests(unittest.TestCase):
 
     def test_question_larger_than_the_budget_is_rejected_before_searching(self):
         with patch("ia_agents.rag.pipeline.search") as search, self.assertRaises(ValueError):
-            rag("x" * 7000, collection=None, llm=FakeLLM("unused"), log_path=None)
+            rag("x" * 7000, collection=None, llm=FakeLLM("unused"), log_path=None, max_prompt_chars=6000)
         search.assert_not_called()
 
     def test_empty_question_is_rejected(self):

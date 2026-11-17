@@ -1,3 +1,5 @@
+TODO: Rewrite this README. The system is now a JS RAG, so the most important command should be `ask`, with everything else explained after it.
+
 # AI agents project
 
 An evolving capstone project for the AI agent development course. Shared code
