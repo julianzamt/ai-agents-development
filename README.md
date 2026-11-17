@@ -96,11 +96,12 @@ individual requests only.
 
 ## Configuration
 
-Values tuned to a corpus and its embedding model live in `rag_config.json` at the project
-root, not in the code: `collection`, `persist_directory`, `eval_dataset`, `retrieval`
-(`k`, `max_distance`, `max_prompt_chars`) and `chunking` (`min_chars`, `target_chars`,
-`max_chars`). `ask`, `retrieve`, `d-retrieval`, `chunk` and `ingest` read it, and
-`--config FILE` selects another file. Precedence: command-line flag, then the file, then
+Values tuned to a corpus and its embedding model live in `corpus/rag_config.json`, next to
+the corpus, not in the code: `collection`, `persist_directory`, `eval_dataset`, `retrieval`
+(`k`, `max_distance`, `max_prompt_chars`), `chunking` (`min_chars`, `target_chars`,
+`max_chars`) and `pricing` (`input_per_million`, `output_per_million`, USD, for `d-retrieval cost`). Paths in it, such as `persist_directory` and `eval_dataset`, are relative to the project
+root. `ask`, `retrieve`, `d-retrieval`, `chunk` and `ingest` read it, and `--config FILE`
+selects another file. Precedence: command-line flag, then the file, then
 neutral built-in defaults (no distance threshold, `k=5`, 6000-character prompt, chunks of
 300/1200/2000). Unknown keys and wrong types are rejected. Re-measure `max_distance` and
 `max_prompt_chars` if the corpus, the embedding model or the chunking changes.
@@ -177,6 +178,55 @@ More filters:
 - `--chunk-id ID` fetches a chunk by its exact ID without a query and without an embedding
   call. It can be combined with the metadata and text filters, but not with queries. You can also
 run it as `python3 -m ia_agents.rag.retrieve_cli`.
+
+## Diagnosing retrieval
+
+`d-retrieval` has six subcommands. `check` tells whether one query retrieves the chunk that
+should answer it (exit code 1 if not):
+
+```bash
+d-retrieval check "What is a closure in JavaScript?" Web/JavaScript/Guide/Closures-000-3f89c664
+```
+
+`metrics` runs every evaluation-dataset question that has relevant chunks and reports, at each
+top `-k`, the hit rate (any relevant chunk retrieved), recall (share of the relevant chunks
+found), precision (relevant share of the `k` slots) and MRR (mean of 1/rank of the first
+relevant chunk). Out-of-domain cases are skipped. Recall and hit rate rise with `k` while
+precision falls.
+
+```bash
+d-retrieval metrics -k 1 3 5
+```
+
+Add `-v` to also list every case with its recall, precision, reciprocal rank, retrieved
+chunks (`*` marks the relevant ones) and the relevant chunks that were missed.
+
+Four more subcommands answer every dataset question that must be answerable with `rag()`, using
+the retrieval settings of `ask` (`-k`, `--max-distance`, `--max-prompt-chars`). Each reports one
+independent measurement and takes `-v` to list every case:
+
+- `cost`: token totals and, if `pricing` is set in the config, the cost in USD, in total and per
+  case. They cover the answering calls only;
+- `latency`: mean, median and maximum seconds `rag()` takes per question;
+- `stages`: how many cases fail at `retrieval` (no relevant chunk in the top `k`), `context`
+  (retrieved but dropped by `max_distance` or the prompt budget) or `generation` (the model
+  abstained despite the relevant chunk being in the prompt);
+- `judge`: faithfulness and relevance, 1 to 5, scored by the configured `LLM_PROVIDER`. Answers
+  that abstained or found no evidence are counted but not judged.
+
+```bash
+d-retrieval cost
+d-retrieval latency -v
+d-retrieval stages -v
+d-retrieval judge --dataset data/eval5.json
+```
+
+Each one runs the questions itself and does not write the query log, so running several repeats
+the answering calls; `judge` adds one judge call per answer. In Python, `run_cases()` runs the
+questions once and `cost_report`, `latency_report`, `stage_report` and `judge_runs` each take those
+runs.
+
+The logic lives in `ia_agents.rag.diagnose`.
 
 ## Asking questions (RAG)
 

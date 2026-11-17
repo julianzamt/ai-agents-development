@@ -99,7 +99,7 @@ class CliDefaultsTests(unittest.TestCase):
             with patch("ia_agents.rag.diagnose_cli.chromadb.PersistentClient"), \
                     patch("ia_agents.rag.diagnose_cli.diagnose_retrieval", return_value=result) as fake, \
                     redirect_stdout(io.StringIO()), self.assertRaises(SystemExit):
-                diagnose_cli.main(["q", "chunk", "--config", str(path)])
+                diagnose_cli.main(["check", "q", "chunk", "--config", str(path)])
         self.assertEqual(fake.call_args.kwargs["k"], 8)
 
 

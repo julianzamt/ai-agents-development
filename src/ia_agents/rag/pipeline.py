@@ -49,7 +49,7 @@ Return only the final answer, concise and direct. No reasoning, introductions or
 BLOCK_SEPARATOR = "\n\n"
 
 # Neutral fallbacks. Values tuned to a corpus and an embedding model (threshold, prompt budget)
-# live in rag_config.json; re-measure them if the corpus, embedding model, metric or chunking changes.
+# live in corpus/rag_config.json; re-measure them if the corpus, embedding model, metric or chunking changes.
 DEFAULT_K = 5
 DEFAULT_MAX_PROMPT_CHARS = 6000
 DEFAULT_MAX_DISTANCE = None  # no relevance threshold
@@ -142,7 +142,8 @@ def rag(
     Steps: retrieve the top k chunks, keep those within max_distance (all, if None), fit them into what
     max_prompt_chars leaves after the system prompt and question, generate, check citations
     and log. The outcome is "no_evidence" (nothing passed, the LLM is not called),
-    "abstained" (the model found the evidence insufficient) or "answered".
+    "abstained" (the model found the evidence insufficient) or "answered". The record holds the
+    answering call's token counts (None when the LLM was not called or does not report them).
     Pass log_path=None to skip logging. ``where`` (metadata) and ``where_document`` (chunk
     text) are Chroma filters applied before ranking, so the top k comes from the allowed set.
     ``multi_query`` > 0 also searches with that many LLM-written rephrasings of the question
@@ -171,13 +172,15 @@ def rag(
     valid: list[int] = []
     invalid: list[int] = []
     provider = llm.provider if multi_query else None
+    input_tokens = output_tokens = None  # unknown until the answering call is made
     if not sources:
         outcome, answer = "no_evidence", NO_EVIDENCE_MESSAGE
     else:
         llm = llm or LLMClient()
         provider = llm.provider
         result = llm.generate(build_prompt(query, context), system=SYSTEM_PROMPT, temperature=0.0)
-        text = response_details(provider, result.response)[0].strip()
+        text, input_tokens, output_tokens = response_details(provider, result.response)
+        text = text.strip()
         if _is_unknown(text):
             outcome, answer = "abstained", ABSTAINED_MESSAGE
         else:
@@ -205,6 +208,8 @@ def rag(
         ],
         "context_chars": len(context),
         "provider": provider,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
         "outcome": outcome,
         "cited": [source["chunk_id"] for source in cited],
         "invalid_citations": invalid,
@@ -212,4 +217,4 @@ def rag(
     }
     if log_path is not None:
         log_query(record, log_path)
-    return {"answer": answer, "sources": sources, "cited": cited, "record": record}
+    return {"answer": answer, "sources": sources, "cited": cited, "context": context, "record": record}
