@@ -335,6 +335,12 @@ class JudgeTests(unittest.TestCase):
         self.assertIn("<evidence>\ncontext for a?\n</evidence>", llm.calls[0]["prompt"])
         self.assertIn("<answer>\nthe answer\n</answer>", llm.calls[0]["prompt"])
 
+    def test_keeps_the_prompt_the_judge_received(self):
+        llm = FakeLLM(Judgment(faithfulness=5, relevance=5, justification="ok"))
+        report = judge_runs([make_run("a?"), make_run("b?", outcome="abstained")], llm)
+        self.assertEqual(report["per_case"][0]["prompt"], llm.calls[0]["prompt"])
+        self.assertIsNone(report["per_case"][1]["prompt"])
+
     def test_nothing_answered_gives_no_scores(self):
         report = judge_runs([make_run(outcome="no_evidence")], FakeLLM(None))
         self.assertEqual(report["answered"], 0)

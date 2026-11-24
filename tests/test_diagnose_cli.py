@@ -151,8 +151,10 @@ class AnsweringTests(unittest.TestCase):
         "judge": {"cases": 3, "answered": 2, "faithfulness": 4.5, "relevance": 3.0,
                   "per_case": [
                       {"question": "q1?", "outcome": "answered", "answer": "x",
-                       "judgment": Judgment(faithfulness=5, relevance=4, justification="Supported.")},
-                      {"question": "q2?", "outcome": "abstained", "answer": "y", "judgment": None}]},
+                       "judgment": Judgment(faithfulness=5, relevance=4, justification="Supported."),
+                       "prompt": "<question>\nq1?\n</question>\n\n<evidence>\nev\n</evidence>"},
+                      {"question": "q2?", "outcome": "abstained", "answer": "y", "judgment": None,
+                       "prompt": None}]},
         "abstention": {"cases": 2, "outcomes": {"no_evidence": 1, "abstained": 0, "answered": 1},
                        "abstention_rate": 0.5, "by_kind": {"missing_detail": {"cases": 2, "abstention_rate": 0.5}},
                        "per_case": [
@@ -217,6 +219,16 @@ class AnsweringTests(unittest.TestCase):
         self.assertNotIn("cost", output)
         self.assertEqual(len(fake.call_args.args), 2)
 
+
+    def test_judge_verbose_shows_prompt_and_response(self):
+        output, _, _ = self.run_command("judge", "-v")
+        self.assertIn("Judge system prompt:", output)
+        self.assertEqual(output.count("Judge system prompt:"), 1)
+        self.assertIn("Prompt:", output)
+        self.assertIn("<evidence>", output)
+        self.assertIn("Response:", output)
+        self.assertIn('"justification": "Supported."', output)
+        self.assertEqual(output.count("Prompt:"), 1)  # the unjudged case has none
     def test_passes_settings_to_the_run(self):
         _, runs, _ = self.run_command("latency", "-k", "2", "--max-distance", "0.9", "--max-prompt-chars", "5000")
         kwargs = runs.call_args.kwargs

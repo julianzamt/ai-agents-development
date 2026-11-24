@@ -13,7 +13,7 @@ from ..llm import LLMClient
 from ..llm.config import PROJECT_ROOT
 from .config import DEFAULT_CONFIG_PATH, add_config_argument, config_for
 from .diagnose import (
-    abstention_report, cost_report, diagnose_retrieval, judge_runs, latency_report, load_eval_dataset, retrieval_metrics,
+    SYSTEM_JUDGE, abstention_report, cost_report, diagnose_retrieval, judge_runs, latency_report, load_eval_dataset, retrieval_metrics,
     run_cases, stage_report,
 )
 
@@ -165,15 +165,28 @@ def print_abstention(result: dict, verbose: bool = False) -> None:
         print(f"  {kind:<15} {entry['cases']:>3} cases  abstention rate: {entry['abstention_rate']:.3f}")
 
 
+def print_block(title: str, text: str) -> None:
+    print("     " + paint(title, "cyan"))
+    for line in text.splitlines():
+        print("       " + paint(line, "dim"))
+
+
 def print_judgments(result: dict, verbose: bool = False) -> None:
     if verbose:
+        print(paint("Judge system prompt:", "bold", "cyan"))
+        for line in SYSTEM_JUDGE.strip().splitlines():
+            print("  " + paint(line, "dim"))
         for number, case in enumerate(result["per_case"], start=1):
             judgment = case["judgment"]
             scores = (f"faithfulness={judgment.faithfulness} relevance={judgment.relevance}"
                       if judgment else f"not judged ({case['outcome']})")
-            print(f"{number:>3}. {scores}  {case['question']}")
+            print(f"\n{number:>3}. {scores}  " + paint(case["question"], "bold"))
             if judgment:
                 print(f"       {judgment.justification}")
+            if case.get("prompt"):
+                print_block("Prompt:", case["prompt"])
+            if judgment:
+                print_block("Response:", judgment.model_dump_json(indent=2))
         print()
     print(f"Cases that must be answered: {result['cases']} | answered: {result['answered']}")
     if result["faithfulness"] is not None:

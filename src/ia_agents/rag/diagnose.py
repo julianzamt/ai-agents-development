@@ -158,6 +158,15 @@ def retrieval_metrics(cases: list[dict], collection: chromadb.Collection, *, k: 
     }
 
 
+def judge_prompt(question: str, evidence: str, answer: str) -> str:
+    """The user prompt the judge receives (its system prompt is ``SYSTEM_JUDGE``)."""
+    return (
+        f"<question>\n{question}\n</question>\n\n"
+        f"<evidence>\n{evidence}\n</evidence>\n\n"
+        f"<answer>\n{answer}\n</answer>"
+    )
+
+
 def judge(question: str, evidence: str, answer: str, llm: LLMClient | None = None) -> Judgment:
     """Have an LLM score an answer's faithfulness to the evidence and its relevance to the question.
 
@@ -165,12 +174,7 @@ def judge(question: str, evidence: str, answer: str, llm: LLMClient | None = Non
     temperature and the structured output of ``llm`` (a new client if None).
     """
     llm = llm or LLMClient()
-    prompt = (
-        f"<question>\n{question}\n</question>\n\n"
-        f"<evidence>\n{evidence}\n</evidence>\n\n"
-        f"<answer>\n{answer}\n</answer>"
-    )
-    return llm.generate(prompt, system=SYSTEM_JUDGE, temperature=0.0, schema_model=Judgment).structured
+    return llm.generate(judge_prompt(question, evidence, answer), system=SYSTEM_JUDGE, temperature=0.0, schema_model=Judgment).structured
 
 
 def run_cases(
@@ -317,15 +321,18 @@ def judge_runs(runs: list[dict], llm: LLMClient | None = None) -> dict:
 
     Returns ``{"cases", "answered", "faithfulness", "relevance", "per_case"}``: the scores are means
     over the judged runs (None if none), and ``per_case`` has each run's ``question``, ``outcome``,
-    ``answer`` and ``judgment`` (None if not judged).
+    ``answer``, ``judgment`` and the judge's ``prompt`` (both None if not judged).
     """
     llm = llm or LLMClient()
     per_case = []
     for run in runs:
         outcome = run["record"]["outcome"]
         question = run["case"]["question"]
-        judgment = judge(question, run["context"], run["answer"], llm) if outcome == "answered" else None
-        per_case.append({"question": question, "outcome": outcome, "answer": run["answer"], "judgment": judgment})
+        answered = outcome == "answered"
+        judgment = judge(question, run["context"], run["answer"], llm) if answered else None
+        prompt = judge_prompt(question, run["context"], run["answer"]) if answered else None
+        per_case.append({"question": question, "outcome": outcome, "answer": run["answer"],
+                         "judgment": judgment, "prompt": prompt})
     judgments = [c["judgment"] for c in per_case if c["judgment"]]
 
     def mean(name):
