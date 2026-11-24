@@ -50,8 +50,10 @@ python scripts/clean_mdn_corpus.py        # regenerate corpus/clean/ from corpus
 
 ## Evaluate
 
-Questions come from `eval_dataset` in the config (`--dataset FILE` to change it;
-`corpus/tests/eval5.json` for quick runs).
+Questions come from `eval_dataset` in the config (the full set), except for `judge`, which
+defaults to the smaller `judge_dataset` (`corpus/tests/eval5.json`) because it adds an LLM call
+per answer. `--dataset FILE` overrides either, e.g. `d-retrieval judge --dataset
+corpus/tests/clean.eval.json` to judge the full set.
 
 ```bash
 d-retrieval check "What is a closure?" Web/JavaScript/Guide/Closures-000-3f89c664
@@ -59,7 +61,7 @@ d-retrieval metrics -k 1 3 5     # hit rate, recall, precision, MRR, overall and
 d-retrieval metrics --only-failures   # only cases missing a relevant chunk, and must-not-answer
                                       # cases within --max-distance; -v lists all, with distances
 d-retrieval stages -v             # first failing stage: retrieval, context or generation
-d-retrieval judge                 # faithfulness and relevance 1–5, scored by an LLM
+d-retrieval judge                 # faithfulness and relevance 1–5, scored by an LLM (small set)
 d-retrieval abstention -v         # must-not-answer questions: declined or (wrongly) answered
 d-retrieval cost                  # tokens and USD (needs `pricing` in the config)
 d-retrieval latency
@@ -74,10 +76,10 @@ Python, run once with `run_cases()` (`answerable=False` for abstention) and pass
 ## Configuration
 
 `corpus/rag_config.json` holds the values tuned to the corpus and embedding model:
-collection, persist directory, eval dataset, `retrieval` (`k`, `max_distance`,
+collection, persist directory, eval datasets, `retrieval` (`k`, `max_distance`,
 `max_prompt_chars`), `chunking` sizes and `pricing`. It is the only source of these values:
 the code has no numeric defaults, so the file is required and must set every key except
-`eval_dataset` and `pricing` (`max_distance` may be `null`: no threshold). A CLI flag overrides
+`eval_dataset`, `judge_dataset` and `pricing` (`max_distance` may be `null`: no threshold). A CLI flag overrides
 it for one run; `--config FILE` selects another file. In Python, pass `k`, `max_distance` and
 `max_prompt_chars` to `rag()` explicitly, e.g. from `load_config()["retrieval"]`. Re-measure
 `max_distance` and `max_prompt_chars` when the corpus, embedding model or chunking changes.

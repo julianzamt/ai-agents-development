@@ -14,6 +14,6 @@ Everything specific to the corpus (the MDN JavaScript Guide) lives here, apart f
     - `false_premise`: the question assumes something the corpus contradicts; the answer should correct it.
     - `ambiguous`: the question has several readings the corpus covers; the answer should address them or ask which is meant. Its relevant chunks cover each reading.
     - `missing_detail`, `out_of_domain`: must not be answered (a JavaScript detail the corpus lacks, or another topic).
-  - `eval5.json`: a 5-question subset of it (one and several relevant chunks, one question that must not be answered), for quick runs, e.g. `d-retrieval judge --dataset corpus/tests/eval5.json`.
+  - `eval5.json`: a 5-question subset of it (one and several relevant chunks, one question that must not be answered), for quick runs. `d-retrieval judge` uses it by default (`judge_dataset` in the config).
 
 Chunk ids in the datasets must exist in `clean.chunks.txt`. After changing a cleaning or chunking rule, regenerate `clean/` and the report, re-ingest, and re-check the datasets.

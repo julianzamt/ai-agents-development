@@ -232,12 +232,19 @@ def main(argv=None):
     )
     common.add_argument("--collection", default=config["collection"], help=f"ChromaDB collection name (default: {config['collection']})")
 
-    with_dataset = argparse.ArgumentParser(add_help=False)
-    with_dataset.add_argument(
-        "--dataset", type=Path, default=PROJECT_ROOT / dataset if dataset else None,
-        help=f"Evaluation dataset JSON (default: {dataset})",
-    )
-    with_dataset.add_argument("-v", "--verbose", action="store_true", help="Also list every case")
+    def dataset_options(default: str | None, source: str) -> argparse.ArgumentParser:
+        options = argparse.ArgumentParser(add_help=False)
+        options.add_argument(
+            "--dataset", type=Path, default=PROJECT_ROOT / default if default else None,
+            help=f"Evaluation dataset JSON (default: {default}, {source} in the config)",
+        )
+        options.add_argument("-v", "--verbose", action="store_true", help="Also list every case")
+        return options
+
+    with_dataset = dataset_options(dataset, "eval_dataset")
+    # The judge adds an LLM call per answer, so it can default to a smaller dataset.
+    judge_dataset = (dataset_options(config["judge_dataset"], "judge_dataset") if config["judge_dataset"]
+                     else with_dataset)
 
     # Measurements that answer every answerable dataset question with rag() share these settings.
     answering = argparse.ArgumentParser(add_help=False)
@@ -270,7 +277,8 @@ def main(argv=None):
         ("judge", "Score the answers' faithfulness and relevance with an LLM judge"),
         ("abstention", "Check that the questions that must not be answered are declined"),
     ):
-        commands.add_parser(name, parents=[common, with_dataset, answering], help=summary)
+        datasets = judge_dataset if name == "judge" else with_dataset
+        commands.add_parser(name, parents=[common, datasets, answering], help=summary)
     args = parser.parse_args(argv)
 
     ks = args.k if args.command == "metrics" else [args.k]

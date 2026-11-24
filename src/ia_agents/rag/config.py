@@ -14,6 +14,7 @@ _TYPES: dict = {
     "collection": str,
     "persist_directory": str,
     "eval_dataset": str,
+    "judge_dataset": str,
     "retrieval": {"k": int, "max_distance": (int, float), "max_prompt_chars": int},
     "chunking": {"min_chars": int, "target_chars": int, "max_chars": int},
     "pricing": {"input_per_million": (int, float), "output_per_million": (int, float)},
@@ -22,6 +23,7 @@ _TYPES: dict = {
 # Keys a config may leave out, and the value that means "not set".
 _OPTIONAL: dict = {
     "eval_dataset": None,
+    "judge_dataset": None,  # default dataset for `d-retrieval judge`; falls back to eval_dataset
     "pricing": {"input_per_million": None, "output_per_million": None},  # USD; unset means no cost report
 }
 
@@ -53,7 +55,7 @@ def _check(value, expected, where: str, optional=None) -> None:
 def load_config(path: Path | str | None = None) -> dict:
     """Load and validate the corpus settings file (``corpus/rag_config.json`` without ``path``).
 
-    The file is required and must set every key except ``eval_dataset`` and ``pricing``.
+    The file is required and must set every key except ``eval_dataset``, ``judge_dataset`` and ``pricing``.
     A missing file, unknown or missing keys and wrong types raise ValueError.
     """
     path = Path(path) if path is not None else DEFAULT_CONFIG_PATH

@@ -118,6 +118,26 @@ class CliDefaultsTests(unittest.TestCase):
                 ask_cli.main(["q", "--config", str(path)])
         self.assertEqual(exit_info.exception.code, 2)
 
+    def run_answering(self, command, config):
+        with tempfile.TemporaryDirectory() as directory:
+            path = write_config(directory, config)
+            with patch("ia_agents.rag.diagnose_cli.chromadb.PersistentClient"), \
+                    patch("ia_agents.rag.diagnose_cli.LLMClient"), \
+                    patch("ia_agents.rag.diagnose_cli.load_eval_dataset", return_value=[]) as load, \
+                    patch("ia_agents.rag.diagnose_cli.run_cases", return_value=[]), \
+                    patch("ia_agents.rag.diagnose_cli.judge_runs"), patch("ia_agents.rag.diagnose_cli.stage_report"), \
+                    patch("ia_agents.rag.diagnose_cli.print_judgments"), patch("ia_agents.rag.diagnose_cli.print_stages"):
+                diagnose_cli.main([command, "--config", str(path)])
+        return load.call_args.args[0]
+
+    def test_judge_defaults_to_the_judge_dataset(self):
+        config = with_keys(eval_dataset="full.json", judge_dataset="small.json")
+        self.assertEqual(self.run_answering("judge", config).name, "small.json")
+        self.assertEqual(self.run_answering("stages", config).name, "full.json")
+
+    def test_judge_falls_back_to_the_eval_dataset(self):
+        self.assertEqual(self.run_answering("judge", with_keys(eval_dataset="full.json")).name, "full.json")
+
     def test_diagnose_takes_k_from_the_config(self):
         with tempfile.TemporaryDirectory() as directory:
             path = write_config(directory, with_keys(retrieval={"k": 8}))
