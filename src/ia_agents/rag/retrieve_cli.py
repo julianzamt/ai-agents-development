@@ -82,7 +82,8 @@ def main(argv=None):
         help=f"ChromaDB persistence directory (default: {config['persist_directory']})",
     )
     parser.add_argument("--collection", default=config["collection"], help=f"ChromaDB collection name (default: {config['collection']})")
-    parser.add_argument("-k", type=int, default=3, help="Matches per query (default: 3)")
+    k = config["retrieval"]["k"]
+    parser.add_argument("-k", type=int, default=k, help=f"Matches per query (default: {k})")
     parser.add_argument(
         "--max-distance", type=float,
         help="Omit results with a larger Chroma distance",

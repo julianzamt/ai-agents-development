@@ -201,7 +201,7 @@ def collection_embedding(collection: chromadb.Collection) -> dict[str, str]:
 def search(
     queries: str | list[str],
     collection: chromadb.Collection,
-    k: int = 3,
+    k: int,
     max_distance: float | None = None,
     where: dict | None = None,
     where_document: dict | None = None,

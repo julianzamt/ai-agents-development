@@ -18,8 +18,14 @@ def make_collection(directory):
     client = chromadb.PersistentClient(path=directory)
     client.create_collection("documents")
 
-METRICS = {"per_case": [{"question": "q?", "relevant": ["a", "b"], "retrieved": ["a", "x"], "hit": 1,
-                         "recall": 0.5, "precision": 0.5, "rr": 1.0}],
+METRICS = {"per_case": [{"question": "q?", "kind": "direct", "relevant": ["a", "b"], "retrieved": ["a", "x"],
+                         "distances": [0.8, 1.3], "hit": 1, "recall": 0.5, "precision": 0.5, "rr": 1.0},
+                        {"question": "fine?", "kind": "direct", "relevant": ["a"], "retrieved": ["a", "x"],
+                         "distances": [0.7, 0.9], "hit": 1, "recall": 1.0, "precision": 0.5, "rr": 1.0}],
+           "unanswerable": [{"question": "near?", "kind": "missing_detail", "retrieved": ["y"],
+                             "distances": [1.1]},
+                            {"question": "far?", "kind": "out_of_domain", "retrieved": ["z"],
+                             "distances": [1.5]}],
            "cases": 2, "hit_rate": 1.0, "recall": 0.5, "precision": 0.25, "mrr": 0.75}
 
 
@@ -77,18 +83,60 @@ class MetricsTests(unittest.TestCase):
         output, fake = self.run_metrics("-k", "1", "3")
         self.assertEqual([call.kwargs["k"] for call in fake.call_args_list], [1, 3])
         self.assertIn("0.750", output)
-        self.assertEqual(len(output.strip().splitlines()), 4)
+        table = output.split("Distances")[0].strip().splitlines()
+        self.assertEqual([line.split()[0] for line in table[3:]], ["k=1", "k=3"])
 
     def test_verbose_lists_each_case(self):
         output, _ = self.run_metrics("-k", "2", "-v")
         self.assertIn("HIT  recall=0.50", output)
-        self.assertIn("*1. a", output)
+        self.assertIn("*1. 0.8000   a", output)
         self.assertIn("missing: b", output)
+
+    def test_only_failures_hides_fully_retrieved_cases(self):
+        output, _ = self.run_metrics("--only-failures")
+        self.assertIn("q?", output)
+        self.assertNotIn("fine?", output)
+        self.assertIn("[direct]", output)
+
+    def test_shows_distances_against_the_threshold(self):
+        output, _ = self.run_metrics("-v", "--max-distance", "1.2")
+        self.assertIn("1.3000 x", output)
+        self.assertIn("relevant chunks retrieved:  n=2", output)
+        self.assertIn("beyond threshold: 0", output)
+        self.assertIn("within threshold: 1", output)
+        self.assertIn("far?", output)
+
+    def test_only_failures_lists_unanswerable_cases_within_the_threshold(self):
+        output, _ = self.run_metrics("--only-failures", "--max-distance", "1.2")
+        self.assertIn("near?", output)
+        self.assertNotIn("far?", output)
+
+    def test_prints_the_threshold_and_its_source(self):
+        output, _ = self.run_metrics("--max-distance", "0.9")
+        self.assertIn("Distance threshold (max_distance): 0.9 (from --max-distance)", output)
+
+    def test_prints_a_table_per_kind(self):
+        by_kind = {"direct": {"cases": 2, "hit_rate": 1.0, "recall": 0.625, "precision": 0.5, "mrr": 1.0}}
+        with patch.dict(METRICS, {"by_kind": by_kind}):
+            output, _ = self.run_metrics("-k", "1", "3")
+        self.assertIn("By kind:", output)
+        self.assertEqual(output.count("0.625"), 2)
 
     def test_rejects_non_positive_k(self):
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exit_info:
             main(["metrics", "-k", "0"])
         self.assertEqual(exit_info.exception.code, 2)
+
+
+class ColorTests(unittest.TestCase):
+    def test_colors_only_on_a_terminal_without_no_color(self):
+        from ia_agents.rag.diagnose_cli import paint
+        with patch("sys.stdout.isatty", return_value=True), patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(paint("HIT", "green"), "\033[32mHIT\033[0m")
+        with patch("sys.stdout.isatty", return_value=True), patch.dict("os.environ", {"NO_COLOR": "1"}):
+            self.assertEqual(paint("HIT", "green"), "HIT")
+        with patch("sys.stdout.isatty", return_value=False):
+            self.assertEqual(paint("HIT", "green"), "HIT")
 
 
 class AnsweringTests(unittest.TestCase):
@@ -105,9 +153,16 @@ class AnsweringTests(unittest.TestCase):
                       {"question": "q1?", "outcome": "answered", "answer": "x",
                        "judgment": Judgment(faithfulness=5, relevance=4, justification="Supported.")},
                       {"question": "q2?", "outcome": "abstained", "answer": "y", "judgment": None}]},
+        "abstention": {"cases": 2, "outcomes": {"no_evidence": 1, "abstained": 0, "answered": 1},
+                       "abstention_rate": 0.5, "by_kind": {"missing_detail": {"cases": 2, "abstention_rate": 0.5}},
+                       "per_case": [
+                           {"question": "q1?", "kind": "missing_detail", "outcome": "no_evidence",
+                            "top_distance": 1.3, "cited": [], "answer": ""},
+                           {"question": "q2?", "kind": "missing_detail", "outcome": "answered",
+                            "top_distance": 0.8, "cited": ["a"], "answer": "It is 42."}]},
     }
     REPORT_FUNCTIONS = {"cost": "cost_report", "latency": "latency_report",
-                        "stages": "stage_report", "judge": "judge_runs"}
+                        "stages": "stage_report", "judge": "judge_runs", "abstention": "abstention_report"}
 
     def run_command(self, command, *extra, report=None):
         with tempfile.TemporaryDirectory() as directory:
@@ -144,6 +199,15 @@ class AnsweringTests(unittest.TestCase):
         self.assertIn("retrieval=1, context=0, generation=1 | no error: 1", output)
         self.assertIn("RETRIEVAL: no relevant chunk in the top 3  q1?", output)
         self.assertIn("ok  q2?", output)
+
+    def test_abstention_runs_unanswerable_cases(self):
+        output, runs, _ = self.run_command("abstention", "-v")
+        self.assertFalse(runs.call_args.kwargs["answerable"])
+        self.assertIn("no_evidence=1, abstained=0, answered=1", output)
+        self.assertIn("abstention rate: 0.500", output)
+        self.assertIn("ANSWERED", output)
+        self.assertIn("It is 42.", output)
+        self.assertIn("cited: a", output)
 
     def test_judge(self):
         output, _, fake = self.run_command("judge", "-v")

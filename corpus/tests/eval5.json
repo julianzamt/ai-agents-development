@@ -1,22 +1,6 @@
 [
   {
-    "question": "What is a closure in JavaScript?",
-    "relevant_chunks": [
-      "Web/JavaScript/Guide/Closures-000-3f89c664"
-    ],
-    "must_answer": true,
-    "kind": "direct"
-  },
-  {
-    "question": "During module linking, what does the engine do for each imported name?",
-    "relevant_chunks": [
-      "Web/JavaScript/Guide/Modules/Module_graph-005-e9c7a06d"
-    ],
-    "must_answer": true,
-    "kind": "direct"
-  },
-  {
-    "question": "What does reduce() do when no initialValue is given?",
+    "question": "If I call reduce() without a starting value, what does the callback receive on its first call?",
     "relevant_chunks": [
       "Web/JavaScript/Guide/Indexed_collections-014-bc4e0c55"
     ],
@@ -24,19 +8,36 @@
     "kind": "direct"
   },
   {
-    "question": "Which three factors classify a property of a JavaScript object?",
+    "question": "Does a Map treat NaN as equal to NaN when comparing keys?",
     "relevant_chunks": [
-      "Web/JavaScript/Guide/Enumerability_and_ownership_of_properties-000-993f3f18"
+      "Web/JavaScript/Guide/Keyed_collections-007-7a594c13"
+    ],
+    "must_answer": true,
+    "kind": "colloquial"
+  },
+  {
+    "question": "If I send an ArrayBuffer to a worker, can I still use it afterwards, and how is a SharedArrayBuffer different?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Typed_arrays-002-2c89ac82",
+      "Web/JavaScript/Guide/Agent_communication_and_coordination-008-6e10ae04",
+      "Web/JavaScript/Guide/Agent_communication_and_coordination-009-9b87c5e8"
     ],
     "must_answer": true,
     "kind": "direct"
   },
   {
-    "question": "What happens to an ArrayBuffer when it is passed to another execution context, compared to a SharedArrayBuffer?",
+    "question": "Why does 42 + \"1\" give \"421\" instead of throwing an error?",
     "relevant_chunks": [
-      "Web/JavaScript/Guide/Typed_arrays-002-2c89ac82"
+      "Web/JavaScript/Guide/Data_structures-001-8cae827e",
+      "Web/JavaScript/Guide/Grammar_and_types-012-c4aa9211"
     ],
     "must_answer": true,
-    "kind": "direct"
+    "kind": "multi_chunk"
+  },
+  {
+    "question": "When does Promise.any() reject, and with what error?",
+    "relevant_chunks": [],
+    "must_answer": false,
+    "kind": "missing_detail"
   }
 ]

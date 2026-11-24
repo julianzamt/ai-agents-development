@@ -9,7 +9,26 @@ from pathlib import Path
 from unittest.mock import patch
 
 from ia_agents.rag import ask_cli, diagnose_cli
-from ia_agents.rag.config import DEFAULTS, config_from_argv, load_config
+from ia_agents.rag.config import config_from_argv, load_config
+
+# A complete config; tests change single keys with with_keys().
+FULL = {
+    "collection": "docs",
+    "persist_directory": "db",
+    "retrieval": {"k": 5, "max_distance": 1.0, "max_prompt_chars": 6000},
+    "chunking": {"min_chars": 300, "target_chars": 1200, "max_chars": 2000},
+}
+
+
+def with_keys(**sections):
+    """FULL with some top-level keys or nested sections replaced (sections are merged)."""
+    config = json.loads(json.dumps(FULL))
+    for key, value in sections.items():
+        if isinstance(value, dict) and isinstance(config.get(key), dict):
+            config[key].update(value)
+        else:
+            config[key] = value
+    return config
 
 
 def write_config(directory, data):
@@ -19,39 +38,46 @@ def write_config(directory, data):
 
 
 class LoadConfigTests(unittest.TestCase):
-    def test_defaults_when_the_default_file_is_missing(self):
+    def test_loads_a_complete_file_and_fills_only_the_optional_keys(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = load_config(write_config(directory, FULL))
+        self.assertEqual(config["retrieval"], FULL["retrieval"])
+        self.assertIsNone(config["eval_dataset"])
+        self.assertEqual(config["pricing"], {"input_per_million": None, "output_per_million": None})
+
+    def test_a_missing_default_file_is_an_error(self):
         with patch("ia_agents.rag.config.DEFAULT_CONFIG_PATH", Path("/nonexistent/rag_config.json")):
-            self.assertEqual(load_config(), DEFAULTS)
+            with self.assertRaisesRegex(ValueError, "not found"):
+                load_config()
 
-    def test_file_overrides_only_the_keys_it_sets(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = write_config(directory, {"collection": "docs", "retrieval": {"k": 9}})
-            config = load_config(path)
-        self.assertEqual(config["collection"], "docs")
-        self.assertEqual(config["retrieval"], {**DEFAULTS["retrieval"], "k": 9})
-        self.assertEqual(config["chunking"], DEFAULTS["chunking"])
+    def test_explicit_missing_path_is_an_error(self):
+        with self.assertRaisesRegex(ValueError, "not found"):
+            load_config("/nonexistent/other.json")
 
-    def test_loading_does_not_mutate_the_defaults(self):
+    def test_max_distance_may_be_null(self):
         with tempfile.TemporaryDirectory() as directory:
-            load_config(write_config(directory, {"retrieval": {"k": 9}}))
-        self.assertEqual(DEFAULTS["retrieval"]["k"], 5)
+            config = load_config(write_config(directory, with_keys(retrieval={"max_distance": None})))
+        self.assertIsNone(config["retrieval"]["max_distance"])
 
     def test_rejects_invalid_files(self):
+        missing_k = with_keys()
+        del missing_k["retrieval"]["k"]
+        missing_chunking = with_keys()
+        del missing_chunking["chunking"]
         invalid = {
-            "unknown key": {"colection": "x"},
-            "unknown nested key": {"retrieval": {"top_k": 3}},
-            "wrong type": {"retrieval": {"k": "5"}},
-            "bool is not a number": {"retrieval": {"max_distance": True}},
-            "section not an object": {"chunking": 5},
+            "unknown key": with_keys(colection="x"),
+            "unknown nested key": with_keys(retrieval={"top_k": 3}),
+            "wrong type": with_keys(retrieval={"k": "5"}),
+            "bool is not a number": with_keys(retrieval={"max_distance": True}),
+            "section not an object": with_keys(chunking=5),
+            "missing nested key": missing_k,
+            "missing section": missing_chunking,
+            "null required key": with_keys(retrieval={"k": None}),
         }
         for name, data in invalid.items():
             with self.subTest(name), tempfile.TemporaryDirectory() as directory:
                 with self.assertRaises(ValueError):
                     load_config(write_config(directory, data))
-
-    def test_explicit_missing_path_is_an_error(self):
-        with self.assertRaisesRegex(ValueError, "not found"):
-            load_config("/nonexistent/other.json")
 
     def test_committed_config_is_valid(self):
         config = load_config()
@@ -59,8 +85,8 @@ class LoadConfigTests(unittest.TestCase):
 
     def test_config_from_argv_reads_only_the_config_flag(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = write_config(directory, {"collection": "docs"})
-            self.assertEqual(config_from_argv(["question", "--config", str(path), "-k", "2"])["collection"], "docs")
+            path = write_config(directory, with_keys(collection="other"))
+            self.assertEqual(config_from_argv(["question", "--config", str(path), "-k", "2"])["collection"], "other")
 
 
 class CliDefaultsTests(unittest.TestCase):
@@ -77,24 +103,24 @@ class CliDefaultsTests(unittest.TestCase):
         return rag_call.call_args
 
     def test_ask_takes_its_defaults_from_the_config(self):
-        call = self.run_ask([], {"retrieval": {"k": 7, "max_distance": 0.8, "max_prompt_chars": 5000}})
+        call = self.run_ask([], with_keys(retrieval={"k": 7, "max_distance": 0.8, "max_prompt_chars": 5000}))
         self.assertEqual((call.kwargs["k"], call.kwargs["max_distance"], call.kwargs["max_prompt_chars"]),
                          (7, 0.8, 5000))
 
     def test_a_flag_beats_the_config(self):
-        call = self.run_ask(["-k", "2", "--max-distance", "0.5"], {"retrieval": {"k": 7, "max_distance": 0.8}})
+        call = self.run_ask(["-k", "2", "--max-distance", "0.5"], with_keys(retrieval={"k": 7, "max_distance": 0.8}))
         self.assertEqual((call.kwargs["k"], call.kwargs["max_distance"]), (2, 0.5))
 
     def test_a_bad_config_file_stops_the_command(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = write_config(directory, {"nope": 1})
+            path = write_config(directory, with_keys(nope=1))
             with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exit_info:
                 ask_cli.main(["q", "--config", str(path)])
         self.assertEqual(exit_info.exception.code, 2)
 
     def test_diagnose_takes_k_from_the_config(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = write_config(directory, {"retrieval": {"k": 8}})
+            path = write_config(directory, with_keys(retrieval={"k": 8}))
             result = {"ok": True, "k": 8, "rank": 1, "distance": 0.1, "retrieved": [], "chunks": []}
             with patch("ia_agents.rag.diagnose_cli.chromadb.PersistentClient"), \
                     patch("ia_agents.rag.diagnose_cli.diagnose_retrieval", return_value=result) as fake, \

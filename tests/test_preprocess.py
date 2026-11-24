@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from ia_agents.rag import chunk_cli
+from ia_agents.rag.config import load_config
 from ia_agents.rag.preprocess import build_chunks, chunk_by_markdown, parse_front_matter
 
 CLEAN_CORPUS = Path(__file__).resolve().parent.parent / "corpus" / "clean"
@@ -52,7 +53,7 @@ class MarkdownChunkingTests(unittest.TestCase):
         fields, body = parse_front_matter(text)
         self.assertEqual(fields, {"title": "Closures", "slug": "Web/Guide/Closures"})
         self.assertEqual(body, "Body text.")
-        self.assertEqual(markdown_chunks(text), ["Closures\n\nBody text."])
+        self.assertEqual(markdown_chunks(text, **self.SMALL), ["Closures\n\nBody text."])
 
     def test_sections_split_at_h2_and_h3_with_heading_path(self):
         text = (
@@ -164,7 +165,7 @@ class MarkdownChunkingTests(unittest.TestCase):
         self.assertEqual(" ".join(chunk.split("\n\n", 1)[1] for chunk in chunks).split(), sentences.split())
 
     def test_text_without_headings_or_front_matter(self):
-        chunks = build_chunks("Plain paragraph.\n\nAnother one.", "doc", "src", strategy="markdown")
+        chunks = build_chunks("Plain paragraph.\n\nAnother one.", "doc", "src", strategy="markdown", **self.SMALL)
         self.assertEqual([chunk.section_title for chunk in chunks], ["Document"])
         self.assertEqual(chunks[0].text, "Plain paragraph.\n\nAnother one.")
 
@@ -175,7 +176,9 @@ class MarkdownChunkingTests(unittest.TestCase):
         self.assertEqual([c.section_title for c in chunks], ["T > One", "T > Two"])
         self.assertEqual([c.position for c in chunks], [0, 1])
         with self.assertRaisesRegex(ValueError, "min_chars <= target_chars <= max_chars"):
-            build_chunks(text, "doc", "src", strategy="markdown", max_chars=100, target_chars=450)
+            build_chunks(text, "doc", "src", strategy="markdown", max_chars=100, target_chars=450, min_chars=50)
+        with self.assertRaisesRegex(ValueError, "requires max_chars, target_chars and min_chars"):
+            build_chunks(text, "doc", "src", strategy="markdown", max_chars=500)
 
     def test_chunk_command_uses_the_front_matter_slug_as_document_id(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -190,11 +193,12 @@ class MarkdownChunkingTests(unittest.TestCase):
     @unittest.skipUnless(CLEAN_CORPUS.is_dir(), "corpus/clean has not been generated")
     def test_cleaned_corpus_invariants(self):
         files = sorted(CLEAN_CORPUS.rglob("*.md"))
+        sizes = load_config()["chunking"]
         self.assertTrue(files)
         for path in files:
             text = path.read_text(encoding="utf-8")
             fields, _ = parse_front_matter(text)
-            chunks = build_chunks(text, fields["slug"], str(path), strategy="markdown")
+            chunks = build_chunks(text, fields["slug"], str(path), strategy="markdown", **sizes)
             self.assertTrue(chunks, path)
             for chunk in chunks:
                 label = f"{path.relative_to(CLEAN_CORPUS)} {chunk.chunk_id}"

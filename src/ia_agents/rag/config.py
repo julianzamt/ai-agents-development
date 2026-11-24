@@ -1,4 +1,4 @@
-"""Corpus-tuned settings: neutral built-in defaults, overridden by a JSON file, then by CLI flags."""
+"""Corpus-tuned settings: a required JSON file next to the corpus, overridden by CLI flags."""
 
 import argparse
 import copy
@@ -9,16 +9,7 @@ from ..llm.config import PROJECT_ROOT
 
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "corpus" / "rag_config.json"
 
-DEFAULTS: dict = {
-    "collection": "documents",
-    "persist_directory": "chroma_db",
-    "eval_dataset": None,
-    "retrieval": {"k": 5, "max_distance": None, "max_prompt_chars": 6000},
-    "chunking": {"min_chars": 300, "target_chars": 1200, "max_chars": 2000},
-    "pricing": {"input_per_million": None, "output_per_million": None},  # USD; unset means no cost report
-}
-
-# Accepted types per key; None is allowed where the built-in default is None.
+# Accepted types per key. Every key is required except those in _OPTIONAL.
 _TYPES: dict = {
     "collection": str,
     "persist_directory": str,
@@ -28,42 +19,57 @@ _TYPES: dict = {
     "pricing": {"input_per_million": (int, float), "output_per_million": (int, float)},
 }
 
+# Keys a config may leave out, and the value that means "not set".
+_OPTIONAL: dict = {
+    "eval_dataset": None,
+    "pricing": {"input_per_million": None, "output_per_million": None},  # USD; unset means no cost report
+}
 
-def _check(value, expected, where: str) -> None:
+# Required keys that may be null: no relevance threshold.
+_NULLABLE = {"retrieval.max_distance"}
+
+
+def _check(value, expected, where: str, optional=None) -> None:
     if isinstance(expected, dict):
         if not isinstance(value, dict):
             raise ValueError(f"{where} must be an object.")
         for key, item in value.items():
             if key not in expected:
                 raise ValueError(f"Unknown config key {where}.{key}." if where else f"Unknown config key {key}.")
-            _check(item, expected[key], f"{where}.{key}" if where else key)
-    elif value is not None and (isinstance(value, bool) or not isinstance(value, expected)):
+        optional = optional or {}
+        for key, item_type in expected.items():
+            path = f"{where}.{key}" if where else key
+            if key in value:
+                _check(value[key], item_type, path, optional.get(key) if isinstance(optional.get(key), dict) else None)
+            elif key not in optional:
+                raise ValueError(f"Missing config key {path}.")
+    elif value is None:
+        if where not in _NULLABLE and where.split(".")[0] not in _OPTIONAL:
+            raise ValueError(f"Config key {where} must not be null.")
+    elif isinstance(value, bool) or not isinstance(value, expected):
         raise ValueError(f"Config key {where} has the wrong type: {value!r}.")
 
 
 def load_config(path: Path | str | None = None) -> dict:
-    """Return the defaults overridden by the JSON file.
+    """Load and validate the corpus settings file (``corpus/rag_config.json`` without ``path``).
 
-    Without ``path``, ``corpus/rag_config.json`` is used if it exists. An explicit
-    ``path`` must exist. Unknown keys and wrong types raise ValueError.
+    The file is required and must set every key except ``eval_dataset`` and ``pricing``.
+    A missing file, unknown or missing keys and wrong types raise ValueError.
     """
-    config = copy.deepcopy(DEFAULTS)
-    explicit = path is not None
-    path = Path(path) if explicit else DEFAULT_CONFIG_PATH
+    path = Path(path) if path is not None else DEFAULT_CONFIG_PATH
     if not path.is_file():
-        if explicit:
-            raise ValueError(f"Config file not found: {path}")
-        return config
+        raise ValueError(f"Config file not found: {path}. Create it or pass --config FILE.")
     try:
         loaded = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise ValueError(f"{path}: {exc}") from exc
     try:
-        _check(loaded, _TYPES, "")
+        _check(loaded, _TYPES, "", _OPTIONAL)
     except ValueError as exc:
         raise ValueError(f"{path}: {exc}") from exc
+    config = copy.deepcopy(_OPTIONAL)
     for key, value in loaded.items():
-        if isinstance(value, dict):
+        if isinstance(value, dict) and isinstance(config.get(key), dict):
             config[key].update(value)
         else:
             config[key] = value
@@ -89,5 +95,5 @@ def config_for(parser: argparse.ArgumentParser, argv: list[str] | None) -> dict:
 def add_config_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--config", type=Path,
-        help=f"JSON file with corpus-tuned settings (default: corpus/{DEFAULT_CONFIG_PATH.name}, if present)",
+        help=f"JSON file with corpus-tuned settings (default: corpus/{DEFAULT_CONFIG_PATH.name})",
     )

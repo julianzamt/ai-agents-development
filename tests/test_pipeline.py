@@ -43,10 +43,13 @@ class FakeLLM:
         return SimpleNamespace(response={"message": {"content": self.answer}})
 
 
+SETTINGS = {"k": 3, "max_distance": None, "max_prompt_chars": 6000}  # explicit retrieval settings
+
+
 def run_rag(chunks, answer="A closure ... [1].", **options):
     llm = FakeLLM(answer)
     with patch("ia_agents.rag.pipeline.search", return_value=chunks) as search:
-        result = rag("What is a closure?", collection=None, llm=llm, log_path=None, **options)
+        result = rag("What is a closure?", collection=None, llm=llm, log_path=None, **{**SETTINGS, **options})
     return result, llm, search
 
 
@@ -172,12 +175,12 @@ class RagTests(unittest.TestCase):
 
     def test_question_larger_than_the_budget_is_rejected_before_searching(self):
         with patch("ia_agents.rag.pipeline.search") as search, self.assertRaises(ValueError):
-            rag("x" * 7000, collection=None, llm=FakeLLM("unused"), log_path=None, max_prompt_chars=6000)
+            rag("x" * 7000, collection=None, llm=FakeLLM("unused"), log_path=None, **SETTINGS)
         search.assert_not_called()
 
     def test_empty_question_is_rejected(self):
         with self.assertRaises(ValueError):
-            rag("   ", collection=None, log_path=None)
+            rag("   ", collection=None, log_path=None, **SETTINGS)
 
     def test_filters_reach_search_and_the_log(self):
         where = {"document_id": "Web/JavaScript/Guide/Closures"}
@@ -192,7 +195,7 @@ class RagTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "rag_log.jsonl"
             with patch("ia_agents.rag.pipeline.search", return_value=[make_chunk(1)]):
-                result = rag("What is a closure?", collection=None, llm=FakeLLM("A [1]."), log_path=path)
+                result = rag("What is a closure?", collection=None, llm=FakeLLM("A [1]."), log_path=path, **SETTINGS)
             logged = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(logged, result["record"])
         for field in ("timestamp", "query", "settings", "retrieved", "passed_threshold",
@@ -235,12 +238,12 @@ class AskCliTests(unittest.TestCase):
         ]})
         self.assertEqual(options["where_document"], {"$contains": "closure"})
 
-    def test_multi_query_is_off_by_default_and_passed_when_given(self):
+    def test_query_variants_is_off_by_default_and_passed_when_given(self):
         result, _, _ = run_rag([])
         _, rag_call = self.run_ask(["q", "--no-log"], result)
-        self.assertEqual(rag_call.call_args.kwargs["multi_query"], 0)
-        _, rag_call = self.run_ask(["q", "--no-log", "--multi-query", "3"], result)
-        self.assertEqual(rag_call.call_args.kwargs["multi_query"], 3)
+        self.assertEqual(rag_call.call_args.kwargs["query_variants"], 0)
+        _, rag_call = self.run_ask(["q", "--no-log", "--query-variants", "3"], result)
+        self.assertEqual(rag_call.call_args.kwargs["query_variants"], 3)
 
     def test_prints_the_variants_when_there_are_any(self):
         result, _, _ = run_rag([make_chunk(1)])
@@ -248,9 +251,9 @@ class AskCliTests(unittest.TestCase):
         output, _ = self.run_ask(["q", "--no-log"], result)
         self.assertIn("Variants:\n  - closure scope", output)
 
-    def test_rejects_a_negative_multi_query(self):
+    def test_rejects_a_negative_query_variants(self):
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            ask_cli.main(["q", "--multi-query", "-1"])
+            ask_cli.main(["q", "--query-variants", "-1"])
 
 
 if __name__ == "__main__":

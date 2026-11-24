@@ -61,7 +61,7 @@ def main(argv=None):
     parser.add_argument("--document-id", help="Search only this document (its document_id metadata)")
     parser.add_argument("--contains", metavar="TEXT", help="Keep only chunks whose text contains TEXT")
     parser.add_argument(
-        "--multi-query", type=int, default=0, metavar="N",
+        "--query-variants", type=int, default=0, metavar="N",
         help="Also search with N LLM-written rephrasings of each question and merge the results "
              "(default: 0, off). Costs one extra LLM call per question.",
     )
@@ -76,8 +76,8 @@ def main(argv=None):
         parser.error("-k must be greater than zero.")
     if args.max_distance is not None and args.max_distance < 0:
         parser.error("--max-distance must be non-negative.")
-    if args.multi_query < 0:
-        parser.error("--multi-query must be zero or greater.")
+    if args.query_variants < 0:
+        parser.error("--query-variants must be zero or greater.")
     if args.max_prompt_chars <= 0:
         parser.error("--max-prompt-chars must be greater than zero.")
 
@@ -99,7 +99,7 @@ def main(argv=None):
                 query, collection, k=args.k, max_distance=args.max_distance,
                 max_prompt_chars=args.max_prompt_chars,
                 log_path=None if args.no_log else args.log,
-                where=where, where_document=where_document, multi_query=args.multi_query,
+                where=where, where_document=where_document, query_variants=args.query_variants,
             )
         except (ValueError, ChromaError) as exc:
             parser.error(str(exc))

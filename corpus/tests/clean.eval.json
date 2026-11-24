@@ -2,21 +2,23 @@
   {
     "question": "What is a closure in JavaScript?",
     "relevant_chunks": [
-      "Web/JavaScript/Guide/Closures-000-3f89c664"
+      "Web/JavaScript/Guide/Closures-000-3f89c664",
+      "Web/JavaScript/Guide/Functions-010-926d553a"
     ],
     "must_answer": true,
     "kind": "direct"
   },
   {
-    "question": "During module linking, what does the engine do for each imported name?",
+    "question": "How does an imported variable end up pointing at the variable in the module that exports it?",
     "relevant_chunks": [
-      "Web/JavaScript/Guide/Modules/Module_graph-005-e9c7a06d"
+      "Web/JavaScript/Guide/Modules/Module_graph-005-e9c7a06d",
+      "Web/JavaScript/Guide/Modules/Module_graph-004-c22baf4d"
     ],
     "must_answer": true,
     "kind": "direct"
   },
   {
-    "question": "What does reduce() do when no initialValue is given?",
+    "question": "If I call reduce() without a starting value, what does the callback receive on its first call?",
     "relevant_chunks": [
       "Web/JavaScript/Guide/Indexed_collections-014-bc4e0c55"
     ],
@@ -24,7 +26,7 @@
     "kind": "direct"
   },
   {
-    "question": "Which three factors classify a property of a JavaScript object?",
+    "question": "How are object properties categorized, for example to decide which ones a loop will visit?",
     "relevant_chunks": [
       "Web/JavaScript/Guide/Enumerability_and_ownership_of_properties-000-993f3f18"
     ],
@@ -32,9 +34,11 @@
     "kind": "direct"
   },
   {
-    "question": "What happens to an ArrayBuffer when it is passed to another execution context, compared to a SharedArrayBuffer?",
+    "question": "If I send an ArrayBuffer to a worker, can I still use it afterwards, and how is a SharedArrayBuffer different?",
     "relevant_chunks": [
-      "Web/JavaScript/Guide/Typed_arrays-002-2c89ac82"
+      "Web/JavaScript/Guide/Typed_arrays-002-2c89ac82",
+      "Web/JavaScript/Guide/Agent_communication_and_coordination-008-6e10ae04",
+      "Web/JavaScript/Guide/Agent_communication_and_coordination-009-9b87c5e8"
     ],
     "must_answer": true,
     "kind": "direct"
@@ -50,15 +54,17 @@
   {
     "question": "How does the ?? operator differ from ||?",
     "relevant_chunks": [
-      "Web/JavaScript/Guide/Expressions_and_operators-021-b0e2f524"
+      "Web/JavaScript/Guide/Expressions_and_operators-021-b0e2f524",
+      "Web/JavaScript/Guide/Expressions_and_operators-020-ffdbcb46"
     ],
     "must_answer": true,
     "kind": "direct"
   },
   {
-    "question": "What does the rest parameter syntax do?",
+    "question": "How can a function accept any number of arguments and get them as an array?",
     "relevant_chunks": [
-      "Web/JavaScript/Guide/Functions-017-9de6b6eb"
+      "Web/JavaScript/Guide/Functions-017-9de6b6eb",
+      "Web/JavaScript/Guide/Language_overview-018-1d14b537"
     ],
     "must_answer": true,
     "kind": "direct"
@@ -66,13 +72,14 @@
   {
     "question": "What is the value of a function parameter when the caller does not pass it?",
     "relevant_chunks": [
-      "Web/JavaScript/Guide/Functions-016-ccc06c97"
+      "Web/JavaScript/Guide/Functions-016-ccc06c97",
+      "Web/JavaScript/Guide/Language_overview-018-1d14b537"
     ],
     "must_answer": true,
     "kind": "direct"
   },
   {
-    "question": "What must an object implement to be iterable?",
+    "question": "What do I need to add to my own object so I can loop over it with for...of?",
     "relevant_chunks": [
       "Web/JavaScript/Guide/Iterators_and_generators-004-abf31e31"
     ],
@@ -80,7 +87,7 @@
     "kind": "direct"
   },
   {
-    "question": "What does the optional chaining operator do?",
+    "question": "How can I read a nested property without a TypeError when something along the way is null or undefined?",
     "relevant_chunks": [
       "Web/JavaScript/Guide/Expressions_and_operators-034-e19e885a"
     ],
@@ -90,7 +97,8 @@
   {
     "question": "What does the import() expression return?",
     "relevant_chunks": [
-      "Web/JavaScript/Guide/Modules-022-ccce9cf6"
+      "Web/JavaScript/Guide/Modules-022-ccce9cf6",
+      "Web/JavaScript/Guide/Modules/Module_graph-035-2ad60047"
     ],
     "must_answer": true,
     "kind": "direct"
@@ -106,7 +114,8 @@
   {
     "question": "How do I match words written in Russian or Arabic with a regex?",
     "relevant_chunks": [
-      "Web/JavaScript/Guide/Regular_expressions/Character_classes-007-27d09e51"
+      "Web/JavaScript/Guide/Regular_expressions/Character_classes-007-27d09e51",
+      "Web/JavaScript/Guide/Regular_expressions-013-9c28d502"
     ],
     "must_answer": true,
     "kind": "colloquial"
@@ -138,7 +147,8 @@
   {
     "question": "What happens if I log a const before the line that declares it?",
     "relevant_chunks": [
-      "Web/JavaScript/Guide/Grammar_and_types-007-9c3fedd7"
+      "Web/JavaScript/Guide/Grammar_and_types-007-9c3fedd7",
+      "Web/JavaScript/Guide/Language_overview-007-5d247f7a"
     ],
     "must_answer": true,
     "kind": "colloquial"
@@ -163,7 +173,9 @@
     "question": "Which regex assertions match the start and end of the input, and how does the multiline flag change them?",
     "relevant_chunks": [
       "Web/JavaScript/Guide/Regular_expressions/Assertions-001-1e50de8f",
-      "Web/JavaScript/Guide/Regular_expressions/Cheatsheet-007-8d2520b9"
+      "Web/JavaScript/Guide/Regular_expressions/Cheatsheet-007-8d2520b9",
+      "Web/JavaScript/Guide/Regular_expressions-011-4d353842",
+      "Web/JavaScript/Guide/Regular_expressions-012-21a2f563"
     ],
     "must_answer": true,
     "kind": "multi_chunk"
@@ -181,7 +193,8 @@
     "question": "How do I show a date in a different calendar system or time zone?",
     "relevant_chunks": [
       "Web/JavaScript/Guide/Internationalization-017-85446565",
-      "Web/JavaScript/Guide/Internationalization-018-37233abc"
+      "Web/JavaScript/Guide/Internationalization-018-37233abc",
+      "Web/JavaScript/Guide/Internationalization-006-b4f2eb86"
     ],
     "must_answer": true,
     "kind": "multi_chunk"
@@ -197,7 +210,105 @@
     "kind": "multi_chunk"
   },
   {
+    "question": "How do I give Node.js more heap memory, and what is the default limit?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Memory_management-010-b1eaf37d"
+    ],
+    "must_answer": true,
+    "kind": "partial"
+  },
+  {
+    "question": "What does Promise.all() do when one of the promises rejects, and when does Promise.any() reject?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Using_promises-012-6cf7b086"
+    ],
+    "must_answer": true,
+    "kind": "partial"
+  },
+  {
+    "question": "What does Atomics.wait() return when it times out, and what is the largest timeout it accepts?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Agent_communication_and_coordination-025-288588df"
+    ],
+    "must_answer": true,
+    "kind": "partial"
+  },
+  {
+    "question": "Why does [NaN].indexOf(NaN) return 0?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Equality_comparisons_and_sameness-002-d0d0b7f4"
+    ],
+    "must_answer": true,
+    "kind": "false_premise"
+  },
+  {
+    "question": "Why can a growable SharedArrayBuffer be shrunk but not grown?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Typed_arrays-001-5f2d1c77",
+      "Web/JavaScript/Guide/Agent_communication_and_coordination-011-57c30b42"
+    ],
+    "must_answer": true,
+    "kind": "false_premise"
+  },
+  {
+    "question": "Since class declarations are hoisted like functions, can I call new MyClass() before the class is declared?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Using_classes-004-39d48b6b"
+    ],
+    "must_answer": true,
+    "kind": "false_premise"
+  },
+  {
+    "question": "How do I sort a list of names?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Indexed_collections-010-be79abf0",
+      "Web/JavaScript/Guide/Internationalization-031-f884db00",
+      "Web/JavaScript/Guide/Internationalization-032-c9e94621"
+    ],
+    "must_answer": true,
+    "kind": "ambiguous"
+  },
+  {
+    "question": "What does in do in JavaScript?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Expressions_and_operators-030-db5bb767",
+      "Web/JavaScript/Guide/Loops_and_iteration-013-d95d518e"
+    ],
+    "must_answer": true,
+    "kind": "ambiguous"
+  },
+  {
     "question": "How do I back up a PostgreSQL database?",
+    "relevant_chunks": [],
+    "must_answer": false,
+    "kind": "out_of_domain"
+  },
+  {
+    "question": "How do I center a div with CSS flexbox?",
+    "relevant_chunks": [],
+    "must_answer": false,
+    "kind": "out_of_domain"
+  },
+  {
+    "question": "How do I create a virtual environment in Python?",
+    "relevant_chunks": [],
+    "must_answer": false,
+    "kind": "out_of_domain"
+  },
+  {
+    "question": "What is the difference between an INNER JOIN and a LEFT JOIN in SQL?",
+    "relevant_chunks": [],
+    "must_answer": false,
+    "kind": "out_of_domain"
+  },
+  {
+    "question": "How do I list the running containers in Docker?",
+    "relevant_chunks": [],
+    "must_answer": false,
+    "kind": "out_of_domain"
+  },
+  {
+    "question": "How long should I boil an egg for a soft yolk?",
     "relevant_chunks": [],
     "must_answer": false,
     "kind": "out_of_domain"
@@ -206,7 +317,7 @@
     "question": "Who invented JavaScript?",
     "relevant_chunks": [],
     "must_answer": false,
-    "kind": "out_of_domain"
+    "kind": "missing_detail"
   },
   {
     "question": "When does Promise.any() reject, and with what error?",

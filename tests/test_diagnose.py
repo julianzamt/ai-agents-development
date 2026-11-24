@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from ia_agents.rag.config import load_config
 from ia_agents.rag.diagnose import (
     SYSTEM_JUDGE, Judgment, diagnose_retrieval, judge, classify_error, cost_report, cost_usd, judge_runs, latency_report, load_eval_dataset, retrieval_metrics,
-    run_cases, stage_report,
+    run_cases, stage_report, abstention_report,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -30,7 +30,7 @@ def chunk(chunk_id, distance):
 class DiagnoseTests(unittest.TestCase):
     def run_diagnose(self, chunks, **kwargs):
         with patch("ia_agents.rag.diagnose.search", return_value=chunks) as fake:
-            return diagnose_retrieval("query", EXPECTED, object(), **kwargs), fake
+            return diagnose_retrieval("query", EXPECTED, object(), **{"k": 3, **kwargs}), fake
 
     def test_found(self):
         result, _ = self.run_diagnose([chunk("other", 0.4), chunk(EXPECTED, 0.6)])
@@ -86,7 +86,7 @@ class LoaderTests(unittest.TestCase):
 
 def fake_search(results):
     def search(question, collection, k):
-        return [{"chunk_id": chunk_id} for chunk_id in results[question][:k]]
+        return [{"chunk_id": chunk_id, "distance": 0.5} for chunk_id in results.get(question, [])[:k]]
     return patch("ia_agents.rag.diagnose.search", search)
 
 
@@ -106,6 +106,16 @@ class RetrievalMetricsTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["recall"], 2 / 3)
         self.assertAlmostEqual(metrics["precision"], (1 + 2 + 0) / 3 / 3)
         self.assertAlmostEqual(metrics["mrr"], (0.5 + 1 + 0) / 3)
+
+    def test_averages_by_kind(self):
+        cases = [case("a?", kind="direct"), case("b?", kind="direct"), case("c?", kind="ambiguous"), case("d?")]
+        with fake_search({"a?": ["a"], "b?": ["x"], "c?": ["a"], "d?": ["x"]}):
+            metrics = retrieval_metrics(cases, None, k=1)
+        self.assertEqual(set(metrics["by_kind"]), {"direct", "ambiguous", "unspecified"})
+        self.assertEqual(metrics["by_kind"]["direct"]["cases"], 2)
+        self.assertAlmostEqual(metrics["by_kind"]["direct"]["hit_rate"], 0.5)
+        self.assertEqual(metrics["by_kind"]["ambiguous"]["recall"], 1.0)
+        self.assertEqual(metrics["per_case"][3]["kind"], "unspecified")
 
     def test_smaller_k_lowers_recall_and_raises_precision(self):
         cases = [case("q?", chunks=("a", "b"))]
@@ -154,11 +164,14 @@ def fake_rag(records):
     return patch("ia_agents.rag.diagnose.rag", rag)
 
 
+SETTINGS = {"k": 3, "max_distance": None, "max_prompt_chars": 6000}  # explicit retrieval settings
+
+
 class RunCasesTests(unittest.TestCase):
     def test_runs_only_answerable_cases_and_times_them(self):
         cases = [case("a?"), case("none?", chunks=(), must_answer=False)]
         with fake_rag({"a?": make_record()}):
-            runs = run_cases(cases, None, object())
+            runs = run_cases(cases, None, object(), **SETTINGS)
         self.assertEqual([run["case"]["question"] for run in runs], ["a?"])
         self.assertEqual(runs[0]["answer"], "answer to a?")
         self.assertEqual(runs[0]["context"], "context for a?")
@@ -172,9 +185,39 @@ class RunCasesTests(unittest.TestCase):
         self.assertEqual(fake.call_args.kwargs["max_prompt_chars"], 900)
         self.assertIsNone(fake.call_args.kwargs["log_path"])
 
+    def test_runs_only_unanswerable_cases_when_asked(self):
+        cases = [case("a?"), case("none?", chunks=(), must_answer=False)]
+        with fake_rag({"none?": make_record(outcome="no_evidence")}):
+            runs = run_cases(cases, None, object(), answerable=False, **SETTINGS)
+        self.assertEqual([run["case"]["question"] for run in runs], ["none?"])
+        with self.assertRaises(ValueError):
+            run_cases([case()], None, object(), answerable=False, **SETTINGS)
+
     def test_rejects_a_dataset_without_answerable_cases(self):
         with self.assertRaises(ValueError):
-            run_cases([case(chunks=(), must_answer=False)], None, object())
+            run_cases([case(chunks=(), must_answer=False)], None, object(), **SETTINGS)
+
+
+class AbstentionTests(unittest.TestCase):
+    def run_of(self, question, outcome, kind):
+        run = make_run(question, outcome=outcome)
+        run["case"] = case(question, chunks=(), must_answer=False, kind=kind)
+        run["record"]["retrieved"] = [{"chunk_id": "a", "distance": 0.9}]
+        return run
+
+    def test_counts_outcomes_and_rates_by_kind(self):
+        runs = [self.run_of("a?", "no_evidence", "out_of_domain"), self.run_of("b?", "abstained", "missing_detail"),
+                self.run_of("c?", "answered", "missing_detail")]
+        report = abstention_report(runs)
+        self.assertEqual(report["outcomes"], {"no_evidence": 1, "abstained": 1, "answered": 1})
+        self.assertAlmostEqual(report["abstention_rate"], 2 / 3)
+        self.assertEqual(report["by_kind"]["out_of_domain"]["abstention_rate"], 1.0)
+        self.assertEqual(report["by_kind"]["missing_detail"]["abstention_rate"], 0.5)
+        self.assertEqual(report["per_case"][2]["top_distance"], 0.9)
+
+    def test_rejects_no_runs(self):
+        with self.assertRaises(ValueError):
+            abstention_report([])
 
 
 class CostTests(unittest.TestCase):
@@ -303,7 +346,8 @@ class CommittedDatasetTests(unittest.TestCase):
         cases = load_eval_dataset(EVAL_PATH)
         self.assertGreaterEqual(len(cases), 20)
         self.assertEqual({c["kind"] for c in cases},
-                         {"direct", "colloquial", "multi_chunk", "out_of_domain", "missing_detail"})
+                         {"direct", "colloquial", "multi_chunk", "partial", "false_premise", "ambiguous",
+                          "out_of_domain", "missing_detail"})
 
     def test_expected_chunks_exist_in_the_committed_chunk_report(self):
         report = CHUNKS_REPORT.read_text(encoding="utf-8")

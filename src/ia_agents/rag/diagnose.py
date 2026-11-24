@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from ..llm import LLMClient
 from .embed import search
-from .pipeline import DEFAULT_K, DEFAULT_MAX_DISTANCE, DEFAULT_MAX_PROMPT_CHARS, rag
+from .pipeline import rag
 
 SYSTEM_JUDGE = """You are a strict evaluator of retrieval-augmented answers. You receive a question, the evidence the system had available and the answer it generated.
 
@@ -40,7 +40,8 @@ def diagnose_retrieval(
     query: str,
     expected_chunk_id: str,
     collection: chromadb.Collection,
-    k: int = DEFAULT_K,
+    *,
+    k: int,
 ) -> dict:
     """Run retrieval for ``query`` and report whether ``expected_chunk_id`` is among the top k.
 
@@ -92,30 +93,51 @@ def load_eval_dataset(path: Path | str) -> list[dict]:
     return cases
 
 
-def retrieval_metrics(cases: list[dict], collection: chromadb.Collection, k: int = DEFAULT_K) -> dict:
+def _averages(per_case: list[dict]) -> dict:
+    """Case count and mean hit rate, recall, precision and reciprocal rank."""
+    count = len(per_case)
+    return {
+        "cases": count,
+        "hit_rate": sum(c["hit"] for c in per_case) / count,
+        "recall": sum(c["recall"] for c in per_case) / count,
+        "precision": sum(c["precision"] for c in per_case) / count,
+        "mrr": sum(c["rr"] for c in per_case) / count,
+    }
+
+
+def retrieval_metrics(cases: list[dict], collection: chromadb.Collection, *, k: int) -> dict:
     """Average retrieval quality over the cases that have relevant chunks, at top ``k``.
 
     Cases without relevant chunks are skipped (they test abstention, not retrieval). Returns
-    ``{"cases", "k", "hit_rate", "recall", "precision", "mrr", "per_case"}``:
+    ``{"cases", "k", "hit_rate", "recall", "precision", "mrr", "by_kind", "per_case"}``:
     hit rate is the share of cases with any relevant chunk in the top k, recall the share of
     each case's relevant chunks found, precision the relevant share of the k slots, and MRR the
     mean of 1/rank of the first relevant chunk (0 when none). ``per_case`` lists, for each
     counted case, its ``question``, ``relevant`` and ``retrieved`` chunk ids and its own
-    ``hit``, ``recall``, ``precision`` and ``rr`` (reciprocal rank).
+    ``kind``, ``hit``, ``recall``, ``precision`` and ``rr`` (reciprocal rank), plus the
+    ``distances`` of the retrieved chunks. ``by_kind`` maps each kind ("unspecified" when absent)
+    to the same averages over its cases. ``unanswerable`` lists the skipped cases with their
+    ``question``, ``kind``, ``retrieved`` ids and ``distances``, to compare against a threshold.
     """
     if k <= 0:
         raise ValueError("k must be greater than zero.")
-    per_case = []
+    per_case, unanswerable = [], []
     for case in cases:
         relevant = case["relevant_chunks"]
+        chunks = search(case["question"], collection, k=k)
+        retrieved = [chunk["chunk_id"] for chunk in chunks]
+        distances = [chunk.get("distance") for chunk in chunks]
         if not relevant:
+            unanswerable.append({"question": case["question"], "kind": case.get("kind") or "unspecified",
+                                 "retrieved": retrieved, "distances": distances})
             continue
-        retrieved = [chunk["chunk_id"] for chunk in search(case["question"], collection, k=k)]
         found = [chunk_id for chunk_id in retrieved if chunk_id in relevant]
         per_case.append({
             "question": case["question"],
+            "kind": case.get("kind") or "unspecified",
             "relevant": list(relevant),
             "retrieved": retrieved,
+            "distances": distances,
             "hit": 1 if found else 0,
             "recall": len(set(found)) / len(relevant),
             "precision": len(found) / k,
@@ -124,15 +146,15 @@ def retrieval_metrics(cases: list[dict], collection: chromadb.Collection, k: int
         })
     if not per_case:
         raise ValueError("The dataset has no case with relevant chunks.")
-    count = len(per_case)
+    kinds = {}
+    for entry in per_case:
+        kinds.setdefault(entry["kind"], []).append(entry)
     return {
-        "cases": count,
+        **_averages(per_case),
         "k": k,
-        "hit_rate": sum(c["hit"] for c in per_case) / count,
-        "recall": sum(c["recall"] for c in per_case) / count,
-        "precision": sum(c["precision"] for c in per_case) / count,
-        "mrr": sum(c["rr"] for c in per_case) / count,
+        "by_kind": {kind: _averages(entries) for kind, entries in kinds.items()},
         "per_case": per_case,
+        "unanswerable": unanswerable,
     }
 
 
@@ -155,22 +177,24 @@ def run_cases(
     cases: list[dict],
     collection: chromadb.Collection,
     llm: LLMClient | None = None,
-    k: int = DEFAULT_K,
-    max_distance: float | None = DEFAULT_MAX_DISTANCE,
-    max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS,
+    *,
+    k: int,
+    max_distance: float | None,
+    max_prompt_chars: int,
+    answerable: bool = True,
 ) -> list[dict]:
-    """Answer each case that must be answerable with ``rag()``; the input of the reports below.
+    """Run ``rag()`` on the cases that must be answered (or, with ``answerable=False``, on those
+    that must not); the input of the reports below.
 
-    Cases without relevant chunks are skipped and queries are not logged. Each run is
-    ``{"case", "answer", "context", "record", "latency"}``, with ``latency`` the seconds ``rag()`` took.
+    Queries are not logged. Each run is ``{"case", "answer", "context", "record", "latency"}``,
+    with ``latency`` the seconds ``rag()`` took.
     """
-    if not any(case["must_answer"] for case in cases):
-        raise ValueError("The dataset has no case that must be answered.")
+    selected = [case for case in cases if case["must_answer"] is answerable]
+    if not selected:
+        raise ValueError("The dataset has no case that must " + ("" if answerable else "not ") + "be answered.")
     llm = llm or LLMClient()
     runs = []
-    for case in cases:
-        if not case["must_answer"]:
-            continue
+    for case in selected:
         start = time.perf_counter()
         result = rag(case["question"], collection, k=k, max_distance=max_distance,
                      max_prompt_chars=max_prompt_chars, llm=llm, log_path=None)
@@ -236,6 +260,40 @@ def classify_error(case: dict, record: dict) -> dict | None:
     if record["outcome"] == "abstained":
         return {"stage": "generation", "detail": "abstained although a relevant chunk was in the context"}
     return None
+
+
+def abstention_report(runs: list[dict]) -> dict:
+    """How runs of cases that must not be answered ended: ``{"cases", "outcomes", "abstention_rate",
+    "by_kind", "per_case"}``.
+
+    ``outcomes`` counts "no_evidence" (nothing passed the threshold), "abstained" (the model declined)
+    and "answered" (a failure). ``abstention_rate`` is the share not answered; ``by_kind`` gives it per
+    kind. ``per_case`` has each run's ``question``, ``kind``, ``outcome``, ``top_distance`` (None if
+    nothing was retrieved), ``cited`` chunk ids and ``answer``.
+    """
+    if not runs:
+        raise ValueError("No runs to report on.")
+    per_case = []
+    for run in runs:
+        record, case = run["record"], run["case"]
+        retrieved = record.get("retrieved") or []
+        per_case.append({
+            "question": case["question"], "kind": case.get("kind") or "unspecified",
+            "outcome": record["outcome"], "top_distance": retrieved[0].get("distance") if retrieved else None,
+            "cited": list(record.get("cited", [])), "answer": run["answer"],
+        })
+    outcomes = {"no_evidence": 0, "abstained": 0, "answered": 0}
+    kinds = {}
+    for entry in per_case:
+        outcomes[entry["outcome"]] = outcomes.get(entry["outcome"], 0) + 1
+        kinds.setdefault(entry["kind"], []).append(entry["outcome"] != "answered")
+    return {
+        "cases": len(per_case), "outcomes": outcomes,
+        "abstention_rate": (len(per_case) - outcomes["answered"]) / len(per_case),
+        "by_kind": {kind: {"cases": len(flags), "abstention_rate": sum(flags) / len(flags)}
+                    for kind, flags in kinds.items()},
+        "per_case": per_case,
+    }
 
 
 def stage_report(runs: list[dict]) -> dict:

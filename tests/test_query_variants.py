@@ -1,10 +1,10 @@
-"""Exercise multi-query retrieval with a fake LLM and a faked search, without external API calls."""
+"""Exercise query-variant retrieval with a fake LLM and a faked search, without external API calls."""
 
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from ia_agents.rag.multiquery import generate_variants, multi_query_search
+from ia_agents.rag.query_variants import generate_variants, search_with_variants
 from ia_agents.rag.pipeline import rag
 
 
@@ -41,44 +41,47 @@ class GenerateVariantsTests(unittest.TestCase):
         self.assertIn("3 different", llm.calls[0]["system"])
 
 
-class MultiQuerySearchTests(unittest.TestCase):
+class SearchWithVariantsTests(unittest.TestCase):
     def test_merges_keeping_best_distance_and_returns_top_k(self):
         results = [
             [chunk("a", 0.5), chunk("b", 0.9)],
             [chunk("b", 0.4), chunk("c", 0.7)],
         ]
-        with patch("ia_agents.rag.multiquery.search", return_value=results) as fake:
-            chunks, variants = multi_query_search("q", None, FakeLLM("v1"), 1, k=2, where={"x": 1})
+        with patch("ia_agents.rag.query_variants.search", return_value=results) as fake:
+            chunks, variants = search_with_variants("q", None, FakeLLM("v1"), 1, k=2, where={"x": 1})
         self.assertEqual([(c["chunk_id"], c["distance"]) for c in chunks], [("b", 0.4), ("a", 0.5)])
         self.assertEqual(variants, ["v1"])
         self.assertEqual(fake.call_args.args[0], ["q", "v1"])
         self.assertEqual(fake.call_args.kwargs["where"], {"x": 1})
 
 
-class RagMultiQueryTests(unittest.TestCase):
+SETTINGS = {"k": 3, "max_distance": None, "max_prompt_chars": 6000}  # explicit retrieval settings
+
+
+class RagQueryVariantsTests(unittest.TestCase):
     def test_off_by_default(self):
         llm = FakeLLM("Answer [1].")
         with patch("ia_agents.rag.pipeline.search", return_value=[chunk("a", 0.5)]) as plain, \
-                patch("ia_agents.rag.pipeline.multi_query_search") as multi:
-            result = rag("q", collection=None, llm=llm, log_path=None)
+                patch("ia_agents.rag.pipeline.search_with_variants") as multi:
+            result = rag("q", collection=None, llm=llm, log_path=None, **SETTINGS)
         multi.assert_not_called()
         plain.assert_called_once()
         self.assertEqual(result["record"]["variants"], [])
-        self.assertEqual(result["record"]["settings"]["multi_query"], 0)
+        self.assertEqual(result["record"]["settings"]["query_variants"], 0)
         self.assertEqual(len(llm.calls), 1)
 
     def test_enabled_uses_merged_chunks_and_logs_variants(self):
         llm = FakeLLM("Answer [1].")
-        with patch("ia_agents.rag.pipeline.multi_query_search", return_value=([chunk("a", 0.5)], ["v1"])) as multi:
-            result = rag("q", collection=None, llm=llm, log_path=None, multi_query=2, k=4)
+        with patch("ia_agents.rag.pipeline.search_with_variants", return_value=([chunk("a", 0.5)], ["v1"])) as multi:
+            result = rag("q", collection=None, llm=llm, log_path=None, query_variants=2, **{**SETTINGS, "k": 4})
         self.assertEqual(multi.call_args.args[3:5], (2, 4))
         self.assertEqual(result["record"]["variants"], ["v1"])
-        self.assertEqual(result["record"]["settings"]["multi_query"], 2)
+        self.assertEqual(result["record"]["settings"]["query_variants"], 2)
         self.assertEqual(result["record"]["provider"], "ollama")
 
     def test_negative_is_rejected(self):
         with self.assertRaises(ValueError):
-            rag("q", collection=None, llm=FakeLLM(), log_path=None, multi_query=-1)
+            rag("q", collection=None, llm=FakeLLM(), log_path=None, query_variants=-1, **SETTINGS)
 
 
 if __name__ == "__main__":

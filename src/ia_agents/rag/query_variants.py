@@ -1,4 +1,4 @@
-"""Multi-query retrieval: search with LLM-written rephrasings of a question and merge the results."""
+"""Query-variant retrieval: search with LLM-written rephrasings of a question and merge the results."""
 
 import re
 
@@ -31,7 +31,7 @@ def generate_variants(query: str, llm: LLMClient, n: int) -> list[str]:
     return variants[:n]
 
 
-def multi_query_search(
+def search_with_variants(
     query: str,
     collection: chromadb.Collection,
     llm: LLMClient,

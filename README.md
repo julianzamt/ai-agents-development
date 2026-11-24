@@ -1,347 +1,103 @@
-TODO: Rewrite this README. The system is now a JS RAG, so the most important command should be `ask`, with everything else explained after it.
-
 # AI agents project
 
-An evolving capstone project for the AI agent development course. Shared code
-lives in `src/ia_agents`; original course notebooks are in `clases/`.
+A RAG agent that answers strictly from a corpus (currently the MDN JavaScript Guide), citing
+the chunks it used, plus a general LLM chat client. Shared code is in `src/ia_agents/`;
+everything specific to the corpus is in `corpus/` (see [corpus/README.md](corpus/README.md)).
 
-## Installation
-
-From the repository root:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e .
-```
-
-Editable installation registers `client` and applies source changes without
-reinstallation. Dependencies are declared in `requirements.txt` and included
-in the package through `pyproject.toml`.
-
-Copy `.env.example` to `.env` and configure your provider and credentials.
-The client reads `.env` from the project root.
-
-## Usage
+## Setup
 
 ```bash
-client --system "Be brief" --temp 0.3 --max_tokens 100
-client "My name is Julian"
-client "What is my name?"
-client --batch "What is the capital of France?" "What is the capital of Argentina?"
-client --help
+python3 -m venv .venv && source .venv/bin/activate
+python -m pip install -e .        # re-run after adding a command
+cp .env.example .env              # set LLM_PROVIDER, EMBEDDING_PROVIDER and credentials
 ```
 
-You can also run `python -m ia_agents`. Parameters without a prompt are saved;
-with a prompt or batch, they override saved values for that invocation only.
-Batch queries use the current configuration but do not read or update history.
+- `LLM_PROVIDER`: `google`, `bedrock`, `anthropic`, `openai` or `ollama`.
+- `EMBEDDING_PROVIDER`: `google` (default), `openai`, `ollama` or `voyage` (embeddings only).
 
-TODO: Persist local history for batch calls, including structured batches. Currently,
-batch prompts and responses are not saved locally.
+## Ask (RAG)
 
-Saved configuration lives in `data/global_config.json`; conversation history lives
-in `data/chat_history.json`. Both are excluded from Git.
-The configuration path is fixed. Use `--history file.json` to select another
-history file; relative paths resolve from the current working directory.
-Configuration is a JSON object with `system`, `temperature`, and `max_tokens` fields. Missing files or
-fields fall back to `DEFAULT_PARAMS`; explicit CLI arguments override saved values.
-Arguments alongside a prompt apply only to that request. Without a prompt,
-configuration arguments are saved for future calls.
-
-Existing `data/client_state.json` files can be split by copying the `params`
-object into the configuration file and the `history` object into the history file.
-
-- `--reset-chat`: clear history.
-- `--reset-config`: restore default configuration.
-- `--reset-all`: reset both.
-
-Local preparation runs before API calls: configuration is loaded and merged with
-CLI overrides, and requested resets are saved immediately. Resets remain in effect
-even if the subsequent request fails. Overrides alongside a query apply only to
-that query; configuration-only commands save them for future calls.
-
-## Organization
-
-- `src/ia_agents/cli.py`: chat client argument parsing and command workflow.
-- `src/ia_agents/llm/`: client, providers, responses and persistence.
-- `src/ia_agents/rag/`: retrieval-augmented generation, from chunking to cited answers.
-  - `preprocess.py`: text chunking (no provider or network).
-  - `embed.py`: embedding providers and semantic search.
-  - `pipeline.py`: `rag()`, the end-to-end pipeline (threshold, context budget, delimited prompt, citations, query log).
-  - `chunk_cli.py`, `ingest_cli.py`, `retrieve_cli.py` and `ask_cli.py`: the `chunk`, `ingest`, `retrieve` and `ask` commands.
-- `src/ia_agents/schemas/`: Pydantic data models.
-- `tests/`: offline tests without real API calls.
-- `clases/clase2/` and `clases/clase3/`: original course material.
-- `data/`: local runtime state.
-- `scripts/install-client.sh`: reinstall the command in `.venv`.
-- `scripts/clean_mdn_corpus.py`: clean `corpus/raw/` into `corpus/clean/` (front matter, MDN macros, HTML tables, links; code blocks untouched). Re-run it after changing a rule: `python scripts/clean_mdn_corpus.py`.
-- `corpus/raw/`: the MDN JavaScript Guide (Markdown), from the MDN content repository, licensed CC-BY-SA 2.5. `corpus/clean/` is the generated, cleaned copy that gets embedded.
-
-Import the client from Python:
-
-```python
-from ia_agents.llm import LLMClient
-
-result = LLMClient().generate("Explain Python briefly")
-print(result.report)
+```bash
+ask "What is a closure in JavaScript?"
+ask --query-variants 3 "How do I loop over my own object?"   # also search N LLM rephrasings
 ```
 
-`generate()` returns a `GenerationResult` with `response` (the provider SDK response),
-`history` (the updated conversation), `structured` (the validated model, or `None`),
-`latency`, and `report`. Select tools with `tool_groups=["tickets"]` and structured
-output with `schema_model=SupportQuery`; both can be used together.
-`generate_batch(prompts, **options)` returns a list of the same results in input
-order. Each item uses the single-query generation flow. The CLI saves history for
-individual requests only.
+For each question: retrieve the top `-k` chunks → drop those beyond `--max-distance` (none
+left → "no sufficient evidence", no LLM call) → fit them into `--max-prompt-chars` → answer
+only from the evidence with `[n]` citations, or abstain → check the citations.
+
+Each question is appended to `data/rag_log.jsonl` (`--log FILE`, `--no-log`) with retrieved,
+in-context and cited chunks and an `outcome`: `answered`, `abstained` or `no_evidence`.
+Filters (`--filter`, `--document-id`, `--contains`) work as in `retrieve`.
+
+## Build and inspect the index
+
+```bash
+chunk corpus/clean                        # chunking report → corpus/clean.chunks.txt, no API calls
+ingest corpus/clean                       # chunk, embed and upsert into ChromaDB
+retrieve "closures in loops" -k 5         # show matches with distance, id, metadata, text
+retrieve --chunk-id Web/JavaScript/Guide/Closures-000-3f89c664
+python scripts/clean_mdn_corpus.py        # regenerate corpus/clean/ from corpus/raw/
+```
+
+- After changing a cleaning or chunking rule: clean → `chunk` (commit the report) → `ingest`
+  → re-check the eval datasets.
+- A collection records its embedding provider and model; ingesting with another one fails,
+  so use a new `--collection`.
+- `retrieve` filters: `--filter KEY[:OP]=VALUE` (`eq`, `ne`, `in`, `nin`, `gt`, `gte`, `lt`,
+  `lte`; repeatable), `--section`, `--document-id`, `--contains`, `--regex`, `--max-distance`.
+- Plain-text input: `--strategy paragraphs` or `--strategy characters --chunk-size N --overlap N`.
+
+## Evaluate
+
+Questions come from `eval_dataset` in the config (`--dataset FILE` to change it;
+`corpus/tests/eval5.json` for quick runs).
+
+```bash
+d-retrieval check "What is a closure?" Web/JavaScript/Guide/Closures-000-3f89c664
+d-retrieval metrics -k 1 3 5     # hit rate, recall, precision, MRR, overall and by kind (no LLM)
+d-retrieval metrics --only-failures   # only cases missing a relevant chunk, and must-not-answer
+                                      # cases within --max-distance; -v lists all, with distances
+d-retrieval stages -v             # first failing stage: retrieval, context or generation
+d-retrieval judge                 # faithfulness and relevance 1–5, scored by an LLM
+d-retrieval abstention -v         # must-not-answer questions: declined or (wrongly) answered
+d-retrieval cost                  # tokens and USD (needs `pricing` in the config)
+d-retrieval latency
+```
+
+`stages`, `judge`, `cost` and `latency` run `rag()` on every answerable question, and
+`abstention` on every question that must not be answered, so each call costs LLM requests. In
+Python, run once with `run_cases()` (`answerable=False` for abstention) and pass the runs to
+`stage_report`, `judge_runs`, `cost_report`, `latency_report` or `abstention_report`
+(`ia_agents.rag.diagnose`).
 
 ## Configuration
 
-Values tuned to a corpus and its embedding model live in `corpus/rag_config.json`, next to
-the corpus, not in the code: `collection`, `persist_directory`, `eval_dataset`, `retrieval`
-(`k`, `max_distance`, `max_prompt_chars`), `chunking` (`min_chars`, `target_chars`,
-`max_chars`) and `pricing` (`input_per_million`, `output_per_million`, USD, for `d-retrieval cost`). Paths in it, such as `persist_directory` and `eval_dataset`, are relative to the project
-root. `ask`, `retrieve`, `d-retrieval`, `chunk` and `ingest` read it, and `--config FILE`
-selects another file. Precedence: command-line flag, then the file, then
-neutral built-in defaults (no distance threshold, `k=5`, 6000-character prompt, chunks of
-300/1200/2000). Unknown keys and wrong types are rejected. Re-measure `max_distance` and
-`max_prompt_chars` if the corpus, the embedding model or the chunking changes.
+`corpus/rag_config.json` holds the values tuned to the corpus and embedding model:
+collection, persist directory, eval dataset, `retrieval` (`k`, `max_distance`,
+`max_prompt_chars`), `chunking` sizes and `pricing`. It is the only source of these values:
+the code has no numeric defaults, so the file is required and must set every key except
+`eval_dataset` and `pricing` (`max_distance` may be `null`: no threshold). A CLI flag overrides
+it for one run; `--config FILE` selects another file. In Python, pass `k`, `max_distance` and
+`max_prompt_chars` to `rag()` explicitly, e.g. from `load_config()["retrieval"]`. Re-measure
+`max_distance` and `max_prompt_chars` when the corpus, embedding model or chunking changes.
 
-## Document ingestion
-
-Embedding provider defaults to Google. Set `EMBEDDING_PROVIDER` to `google`,
-`openai`, `ollama`, or `voyage`. Configure the matching credentials and optionally set
-`GOOGLE_EMBEDDING_MODEL_ID`, `OPENAI_EMBEDDING_MODEL_ID`, `OLLAMA_EMBEDDING_MODEL_ID`,
-or `VOYAGE_EMBEDDING_MODEL_ID`. Google uses separate document and query embedding
-formats recommended for retrieval by the selected Gemini embedding model. Voyage
-(`VOYAGE_API_KEY`, default model `voyage-4`) is used for embeddings only, not as an
-`LLM_PROVIDER`; it marks inputs as `document` or `query`, and ingestion sends them in
-batches of 128 (Google: batches of 100, the API maximum).
-Refresh the editable installation to register the separate `chunk`, `ingest` and `retrieve` commands:
+## Chat client
 
 ```bash
-python3 -m pip install -e .
-ingest tests/test_corpus.txt --strategy paragraphs --max-chars 1000 --persist-directory data/chroma_db --collection charly
+client "My name is Julian"                         # keeps history in data/chat_history.json
+client --system "Be brief" --temp 0.3              # no prompt: saves the settings
+client --batch "Question 1" "Question 2"           # 1–3 independent queries, no history
+client --structured support "My account is locked" # validated Pydantic output
+client --tools tickets "What is the status of ticket T-001?"
+client --reset-chat | --reset-config | --reset-all
 ```
 
-Alternatively, run `python3 -m ia_agents.rag.ingest_cli` with the same arguments.
-
-To see what would be embedded without calling any provider or touching ChromaDB, run
-`chunk` with the same input and chunking options: `chunk corpus/clean` writes a readable
-report (settings, size statistics, every chunk) to `corpus/clean.chunks.txt`, next to the
-directory (the committed report for the corpus; run it from the repository root and commit
-the result after changing a cleaning or chunking rule). For a single file it writes
-`<document-id>.chunks.txt` in the current directory. Use `--output FILE` to choose the path or
-`--stdout` to print it. `ingest` runs the same chunking, then embeds and stores.
-
-The default strategy, `markdown`, is for Markdown such as `corpus/clean/`: it splits at
-`##` and `###` headings, prefixes every chunk with its heading path (`Title > H2 > H3`),
-never cuts a code fence or table, and merges tiny sections into a neighbour
-(`--min-chars 300`, `--target-chars 1600`, `--max-chars 2000`). The front matter `slug`
-becomes the document ID. Ingest one file at a time, for example
-`ingest corpus/clean/closures/index.md`, or pass a directory to ingest every `.md` and
-`.txt` file under it in one run, for example
-`ingest corpus/clean --persist-directory data/chroma_db --collection mdn` (`--document-id` and
-`--source` apply to single files only). Plain text uses `--strategy paragraphs` or
-`--strategy characters --chunk-size 1000 --overlap 150`.
-Add `--print-chunks` to inspect the chunks. `--document-id` and `--source` override
-the metadata defaults (input stem and input path). Paragraphs larger than
-`--max-chars` remain intact. The command calls the configured embedding provider
-and stores chunk text, IDs, metadata, and embeddings in the local ChromaDB collection. The
-default persistence directory is `./chroma_db` and the default collection is
-`documents`; repeated ingestion upserts chunks by their deterministic IDs.
-A new collection records the embedding provider and model in its metadata
-(`embedding_provider`, `embedding_model`). Ingesting into an existing collection
-with a different provider or model fails before any embedding call; use a new
-`--collection` instead. Search always embeds queries with the recorded provider and
-model, whatever `EMBEDDING_PROVIDER` is set to. Collections created before this
-was recorded are rejected by both commands; re-ingest them into a new collection.
-
-Inspect retrieval by passing one or more queries to `retrieve`:
-
-```bash
-retrieve "Who were the members of Serú Girán?" "Which album began the solo period?" \
-  --persist-directory data/chroma_db --collection charly -k 3
-```
-
-The command prints each match's Chroma distance, chunk ID, section metadata, and
-text. Use `--section section_04` or `--document-id charly` to filter by metadata,
-or `--filter KEY=VALUE` for any metadata field (repeat it to require several; all
-filters must match). Values are compared as strings. `--max-distance` hides matches
-beyond a distance threshold.
-
-More filters:
-
-- `--filter KEY:OP=VALUE` with `OP` one of `eq` (default), `ne`, `in`, `nin` (comma-separated
-  values, e.g. `--filter tema:in=apis,rag`), or `gt`, `gte`, `lt`, `lte` (numeric; the stored
-  metadata must be numeric too, since ingestion stores strings).
-- `--contains TEXT` and `--regex PATTERN` filter on the chunk text.
-- `--chunk-id ID` fetches a chunk by its exact ID without a query and without an embedding
-  call. It can be combined with the metadata and text filters, but not with queries. You can also
-run it as `python3 -m ia_agents.rag.retrieve_cli`.
-
-## Diagnosing retrieval
-
-`d-retrieval` has six subcommands. `check` tells whether one query retrieves the chunk that
-should answer it (exit code 1 if not):
-
-```bash
-d-retrieval check "What is a closure in JavaScript?" Web/JavaScript/Guide/Closures-000-3f89c664
-```
-
-`metrics` runs every evaluation-dataset question that has relevant chunks and reports, at each
-top `-k`, the hit rate (any relevant chunk retrieved), recall (share of the relevant chunks
-found), precision (relevant share of the `k` slots) and MRR (mean of 1/rank of the first
-relevant chunk). Out-of-domain cases are skipped. Recall and hit rate rise with `k` while
-precision falls.
-
-```bash
-d-retrieval metrics -k 1 3 5
-```
-
-Add `-v` to also list every case with its recall, precision, reciprocal rank, retrieved
-chunks (`*` marks the relevant ones) and the relevant chunks that were missed.
-
-Four more subcommands answer every dataset question that must be answerable with `rag()`, using
-the retrieval settings of `ask` (`-k`, `--max-distance`, `--max-prompt-chars`). Each reports one
-independent measurement and takes `-v` to list every case:
-
-- `cost`: token totals and, if `pricing` is set in the config, the cost in USD, in total and per
-  case. They cover the answering calls only;
-- `latency`: mean, median and maximum seconds `rag()` takes per question;
-- `stages`: how many cases fail at `retrieval` (no relevant chunk in the top `k`), `context`
-  (retrieved but dropped by `max_distance` or the prompt budget) or `generation` (the model
-  abstained despite the relevant chunk being in the prompt);
-- `judge`: faithfulness and relevance, 1 to 5, scored by the configured `LLM_PROVIDER`. Answers
-  that abstained or found no evidence are counted but not judged.
-
-```bash
-d-retrieval cost
-d-retrieval latency -v
-d-retrieval stages -v
-d-retrieval judge --dataset corpus/tests/eval5.json
-```
-
-Each one runs the questions itself and does not write the query log, so running several repeats
-the answering calls; `judge` adds one judge call per answer. In Python, `run_cases()` runs the
-questions once and `cost_report`, `latency_report`, `stage_report` and `judge_runs` each take those
-runs.
-
-The logic lives in `ia_agents.rag.diagnose`.
-
-## Asking questions (RAG)
-
-`ask` answers questions from a collection with the configured `LLM_PROVIDER`, citing the
-chunks it used:
-
-```bash
-ask "What is a closure in JavaScript?" "How do I back up a PostgreSQL database?"
-```
-
-For each question, `rag()` in `ia_agents.rag.pipeline`:
-
-1. Retrieves the top `-k` chunks (default 3), with the same `--filter`, `--document-id` and
-   `--contains` filters as `retrieve`.
-2. Keeps chunks within `--max-distance` (default 1.2). If none pass, it answers "I found no
-   sufficient evidence…" without calling the LLM.
-3. Fits them into `--max-prompt-chars` (default 6000), a budget for the whole prompt:
-   system prompt, question and evidence. Lower-ranked chunks are dropped first; a single
-   chunk that does not fit is truncated.
-4. Sends the numbered evidence and the question inside `<evidence>` and `<question>` tags.
-   The system prompt allows answers only from the evidence, requires `[n]` citations and
-   asks for "I don't know the answer." otherwise. That reply is shown as the no-evidence
-   message.
-5. Checks every `[n]` against the evidence provided. Code is ignored, so `arr[0]` is not a
-   citation. Citations of evidence that was never provided are reported.
-
-Optional `--multi-query N` (off by default) adds a step before 1: the LLM writes N rephrasings
-of the question, each is searched with the same `-k`, and the results are merged keeping each
-chunk's best distance and the closest `-k` overall. It can raise recall when the wording of
-the question differs from the corpus, at the cost of one extra LLM call per question. The
-variants are printed and logged under `variants`.
-
-```bash
-ask --multi-query 3 "How do I stop someone from tricking the bot with hidden instructions?"
-```
-
-Each question appends a JSON line to `data/rag_log.jsonl` (`--log FILE` to change it,
-`--no-log` to skip it). The record lists the chunks retrieved with their distances, those
-that passed the threshold, those in the context, those cited, any invalid citations, the
-settings, and an `outcome`: `no_evidence` (nothing passed the threshold), `abstained` (the
-model found the evidence insufficient) or `answered`.
-
-The defaults were measured on the `documents` collection (MDN guide, `voyage-4`, L2
-distance). There, in-domain questions score ≤ 1.00, ambiguous ones 1.00–1.12 and
-out-of-domain ones ≥ 1.33. Re-measure the threshold with `retrieve` and the budget with
-`chunk` if the embedding model, the metric or the chunking changes.
-
-### Why retrieved chunks are not deduplicated
-
-Dropping near-identical chunks before building the context was evaluated and not adopted.
-On 10 direct questions, the cosine similarity between the vectors of the 5 retrieved chunks
-(100 pairs) had a median of 0.79. Only one pair was a true duplicate (0.99): the boundary
-assertions table, repeated in the regular expressions cheat sheet and in the assertions
-page. It did not change the answer.
-
-The 0.85 threshold used for toy corpora is unusable here: 20 of 100 pairs exceed it, and
-the ones above 0.90 were neighbouring sections on the same topic that say different things
-(for example, the two halves of "Objects > Properties"). Dropping one of them would lose
-evidence. Only a threshold near 0.97 separates real duplicates, and it would act on about
-one query in ten.
-
-Real duplicates come from the corpus, so fix them at ingestion (exclude or merge the
-repeated page), not on every query. Re-measure on a larger question set if duplicates start
-to appear in the logs.
-
-## Tests
-
-```bash
-python -m unittest discover -s tests
-```
-
-## Class 3 — section 1: JSON Schema and Pydantic
-
-`ia_agents.schemas.SupportQuery` defines `category`, `urgency`, `summary`
-(1 to 200 characters), and the required boolean `requires_escalation`.
-It rejects extra fields and implicit type conversions. This is the notebook's
-teaching example; the lab will later require a domain-specific model.
-
-Run the demo without credentials or LLM calls:
-
-```bash
-python -m ia_agents.schemas
-```
-
-Generate the JSON contract with `SupportQuery.model_json_schema()`.
-`model_validate(data)` validates a dictionary; `model_validate_json(text)`
-validates JSON. Both return a `SupportQuery` instance or raise
-`pydantic.ValidationError`. `model_dump()` and `model_dump_json()` serialize
-validated objects. The contract checks structure, not whether a query's
-meaning was classified correctly.
-
-This stage defines and validates data. Provider structured outputs belong
-to section 2 and have not been implemented yet.
-
-## Class 3 — section 2: native structured outputs
-
-```bash
-client --structured support --prompt "My account has been locked for two days. Please escalate." --temp 0
-```
-
-The client sends `SupportQuery`'s JSON Schema through the provider's native
-structured-output parameter, validates the returned JSON with Pydantic, and
-prints the validated object alongside latency and token counts. Saved parameters
-and conversation history still apply. Invalid output raises a clear error and
-is not added to history. `--structured` accepts an individual prompt or a batch:
-
-```bash
-client --batch "My bill was charged twice" "I cannot log in" --structured support
-```
-
-Structured batches run independently with up to three workers and print validated
-results in input order. They use saved configuration without reading or updating
-conversation history. `--structured-mode` and `--structured-attempts` apply to each
-prompt separately. If any query exhausts its attempts, the command fails without
-printing partial batch results.
+- Settings go to `data/global_config.json`; with a prompt, flags apply only to that call.
+- `--structured-mode prompt` asks for JSON in the instructions instead of the provider's
+  native schema; `--structured-attempts N` (default 3) retries invalid output.
+- `tickets` tools are local mocks. Tools and structured output can be combined.
+- Transport calls retry up to 3 times with exponential backoff and jitter (`llm/config.py`).
 
 From Python:
 
@@ -349,110 +105,22 @@ From Python:
 from ia_agents.llm import LLMClient
 from ia_agents.schemas import SupportQuery
 
-result = LLMClient().generate(
-    "Classify this issue: my account is locked", schema_model=SupportQuery,
-)
-query = result.structured
+result = LLMClient().generate("My account is locked", schema_model=SupportQuery, tool_groups=["tickets"])
+result.structured, result.report
 ```
 
-Native mappings: Bedrock `outputConfig.textFormat`, Anthropic
-`output_config.format`, OpenAI `response_format`, Google
-`response_mime_type` and `response_json_schema`, Ollama `format`.
-Support depends on the selected model and provider's JSON Schema subset.
-Unsupported requests fail explicitly; the universal prompt-only mode must be selected explicitly. Schema validation checks structure,
-not factual correctness. Existing system prompts can conflict with this task;
-use suitable instructions or override `--system` for the request.
+## Layout
 
+- `src/ia_agents/llm/`: LLM client, providers, retries, persistence. `cli.py`: `client`.
+- `src/ia_agents/rag/`: `preprocess` (chunking), `embed` (embeddings, search),
+  `pipeline` (`rag()`), `query_variants`, `diagnose`, and one `*_cli.py` per command.
+- `src/ia_agents/schemas/`, `src/ia_agents/tools/`: Pydantic models and tool groups.
+- `corpus/`: raw and clean corpus, chunk report, `rag_config.json`, eval datasets.
+- `tests/`: offline tests (`python -m unittest discover tests`).
+- `clases/`: course notebooks (reference only). `data/`: local state, not in Git.
 
-## Class 3 — section 3: structured validation retries
+## Design notes
 
-Structured generation allows up to three validation attempts by default. Invalid
-JSON or schema violations trigger another request containing the original task,
-previous output, validation errors, and schema. Exhaustion raises a clear error
-with the last validation exception as its cause. Only the successful final turn
-is saved in conversation history.
-
-```bash
-client --structured support --structured-attempts 3 --prompt "My account is locked"
-client --structured support --structured-mode prompt --temp 0 --prompt "My account is locked"
-```
-
-`--structured-attempts` (alias `--max-attempts-for-structured-response`) defaults
-to 3. Without a prompt or batch, it saves a preference; with a query, it overrides
-the saved value for that query. Existing configuration files use the default
-when `max_attempts_for_structured_response` is absent.
-
-`--structured-mode prompt` requests JSON through instructions instead of native
-provider schema enforcement, supporting the universal pattern from the notebook.
-Native mode remains the default; unsupported native requests are not silently
-retried in prompt mode. Python callers can pass `max_attempts_for_structured_response=3` and `native=False`
-to `generate(..., schema_model=SupportQuery)`.
-
-Validation attempts are separate from transport retries: each validation attempt
-can use the existing bounded network retry policy. Report latency includes all
-attempts; displayed token counts belong to the final response, not the total
-consumed by failed attempts. Validation repair does not add backoff delays.
-
-## Class 3 — section 4: explicit tool calling
-
-```bash
-client --tools tickets --system "Use the ticket tools and report their results accurately." --prompt "What is the status of ticket T-999?"
-client --tools tickets --prompt "Escalate ticket T-001 because the service has been down for two hours."
-```
-
-The registered tools are `get_ticket_status(ticket_id)` and
-`escalate_ticket(ticket_id, reason)`. Both are local mocks: escalation does not
-change a real ticket or persist a new status. Unknown IDs return `Not found`.
-Arguments are validated with strict Pydantic models before execution.
-
-The model requests functions; application code executes them and sends results
-back through provider-native messages. Google AFC stays disabled. The loop
-supports up to three execution rounds plus a final response, rejects unknown
-tools, and saves the complete successful exchange, including signatures and
-tool results for individual queries. Tool mode accepts an individual prompt or
-`--batch`, and can be combined with `--structured`. Saved parameters apply as usual.
-
-```bash
-client --batch "Check ticket T-001" "Check ticket T-002" --tools tickets
-client --batch "Classify ticket T-001 using its status" "Classify ticket T-002 using its status" --tools tickets --structured support
-```
-
-Each batch item runs its own tool loop with up to three workers, and reports appear
-in input order. Batch conversations are not saved locally. If a query fails, the
-batch command fails without printing partial results; other queries may already
-have executed their tools.
-
-When tools and structured output are combined, the tool conversation completes
-first. A separate request converts its transcript into the selected schema, using
-`--structured-mode` and `--structured-attempts`. Validation retries do not rerun
-tools. Individual queries save both stages in chat history.
-
-In Python, `LLMClient().generate(prompt, tool_groups=["tickets"])` returns the same
-`GenerationResult` as other modes, including the final SDK response and updated
-history. Add `schema_model=SupportQuery` for validated structured output. Report latency covers the whole loop; token
-counts currently describe only the final response. No real API calls are made
-by the automated tests.
-
-## Class 3 — section 5: timeouts and exponential backoff with jitter
-
-Transport calls allow at most three attempts. Retryable failures (timeouts,
-rate limits and recognized temporary service errors) wait `2 ** attempt` plus
-a random value between 0 and 1 second: 1–2 seconds before the second attempt,
-2–3 before the third. There is no delay after success or final failure.
-Validation and permission errors are not retried.
-
-The shared policy lives in `src/ia_agents/llm/config.py`: 60-second read/request
-inactivity timeouts, a 10-second Bedrock connection timeout and three transport
-attempts. Google receives its timeout in milliseconds. SDK retries are disabled
-where configurable so they do not multiply the application retries.
-
-These are transport timeouts, not a strict deadline for the complete command:
-network phases, structured repair attempts and tool rounds can increase total
-elapsed time. Structured validation retries remain distinct from transport
-backoff. Offline tests cover timeout retries, jitter, bounded exhaustion and
-provider timeout/retry settings.
-
-`--tools` accepts one or more registered tool group names, for example
-`client "Check T-001" --tools tickets`. Currently only `tickets` is registered.
-Additional groups can be registered in `TOOL_GROUPS`; selected groups are combined
-without duplicate tools.
+- Retrieved chunks are not deduplicated: on the MDN guide only one real duplicate pair was
+  found (a table repeated in the regex cheat sheet), and any useful similarity threshold also
+  dropped neighbouring sections with different content. Fix duplicates in the corpus instead.

@@ -181,7 +181,7 @@ class IngestionLabTests(unittest.TestCase):
         embedding_provider = unittest.mock.Mock()
         embedding_provider.embed_queries.return_value = [[1.0, 0.0]]
         with patch("ia_agents.rag.embed.get_embedding_provider", return_value=embedding_provider):
-            results = search("question", collection)
+            results = search("question", collection, k=3)
         self.assertEqual(results, [{
             "chunk_id": "chunk-a", "text": "text a", "distance": 0.25,
             "metadata": {},
@@ -202,7 +202,7 @@ class IngestionLabTests(unittest.TestCase):
             client_class.return_value.embeddings.create.return_value = SimpleNamespace(
                 data=[SimpleNamespace(embedding=[1.0, 0.0])],
             )
-            self.assertEqual(search("question", collection), [])
+            self.assertEqual(search("question", collection, k=3), [])
             client_class.return_value.embeddings.create.assert_called_once_with(
                 model="text-embedding-3-large", input=["question"],
             )
@@ -213,7 +213,7 @@ class IngestionLabTests(unittest.TestCase):
             with self.subTest(metadata=metadata), \
                     patch("ia_agents.rag.embed.get_embedding_provider") as get_provider:
                 with self.assertRaisesRegex(ValueError, "does not record its embedding"):
-                    search("question", collection)
+                    search("question", collection, k=3)
                 get_provider.assert_not_called()
                 collection.query.assert_not_called()
 

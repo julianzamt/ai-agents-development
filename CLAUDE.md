@@ -13,7 +13,7 @@ An agent that answers strictly from a corpus. The shared code is agnostic to the
 
 ## Corpus independence
 - Code in `src/` must not mention the specific corpus (its name, topic, paths or chunk ids). Corpus-specific material lives in `corpus/`, `scripts/`, the README and `corpus/rag_config.json`.
-- Values tuned to a corpus or embedding model (thresholds, budgets, chunk sizes, collection name) belong in `corpus/rag_config.json`, never as code defaults. Code keeps neutral fallbacks.
+- Values tuned to a corpus or embedding model (thresholds, budgets, chunk sizes, collection name) belong in `corpus/rag_config.json`, never as code defaults. The code has no fallbacks for them: the config file is required, and library functions take these values as required arguments.
 
 ## Layout
 - Shared code lives in `src/ia_agents/`; RAG code in `src/ia_agents/rag/`. Notebooks in `clases/` are course material, not the implementation.

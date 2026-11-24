@@ -11,7 +11,7 @@ from ..llm import LLMClient
 from ..llm.config import PROJECT_ROOT
 from ..llm.responses import response_details
 from .embed import search
-from .multiquery import multi_query_search
+from .query_variants import search_with_variants
 
 DEFAULT_LOG_PATH = PROJECT_ROOT / "data" / "rag_log.jsonl"
 
@@ -47,12 +47,6 @@ Return only the final answer, concise and direct. No reasoning, introductions or
 """
 
 BLOCK_SEPARATOR = "\n\n"
-
-# Neutral fallbacks. Values tuned to a corpus and an embedding model (threshold, prompt budget)
-# live in corpus/rag_config.json; re-measure them if the corpus, embedding model, metric or chunking changes.
-DEFAULT_K = 5
-DEFAULT_MAX_PROMPT_CHARS = 6000
-DEFAULT_MAX_DISTANCE = None  # no relevance threshold
 
 
 def build_context(chunks: list[dict], max_chars: int) -> tuple[str, list[dict]]:
@@ -128,14 +122,15 @@ def _is_unknown(text: str) -> bool:
 def rag(
     query: str,
     collection: chromadb.Collection,
-    k: int = DEFAULT_K,
-    max_distance: float | None = DEFAULT_MAX_DISTANCE,
-    max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS,
+    *,
+    k: int,
+    max_distance: float | None,
+    max_prompt_chars: int,
     llm: LLMClient | None = None,
     log_path: Path | None = DEFAULT_LOG_PATH,
     where: dict | None = None,
     where_document: dict | None = None,
-    multi_query: int = 0,
+    query_variants: int = 0,
 ) -> dict:
     """Answer a question from the collection, with citations, and log how the answer was built.
 
@@ -146,23 +141,23 @@ def rag(
     answering call's token counts (None when the LLM was not called or does not report them).
     Pass log_path=None to skip logging. ``where`` (metadata) and ``where_document`` (chunk
     text) are Chroma filters applied before ranking, so the top k comes from the allowed set.
-    ``multi_query`` > 0 also searches with that many LLM-written rephrasings of the question
+    ``query_variants`` > 0 also searches with that many LLM-written rephrasings of the question
     and merges the results (one extra LLM call); 0, the default, searches the question alone.
     """
     if not query.strip():
         raise ValueError("query must be a non-empty string.")
-    if multi_query < 0:
-        raise ValueError("multi_query must be zero or greater.")
+    if query_variants < 0:
+        raise ValueError("query_variants must be zero or greater.")
     # The budget covers the whole input, so the context gets what the fixed parts leave.
     context_budget = max_prompt_chars - len(SYSTEM_PROMPT) - len(build_prompt(query, ""))
     if context_budget <= 0:
         raise ValueError("The system prompt and question alone exceed max_prompt_chars.")
 
     variants: list[str] = []
-    if multi_query:
+    if query_variants:
         llm = llm or LLMClient()
-        retrieved, variants = multi_query_search(
-            query, collection, llm, multi_query, k, where=where, where_document=where_document,
+        retrieved, variants = search_with_variants(
+            query, collection, llm, query_variants, k, where=where, where_document=where_document,
         )
     else:
         retrieved = search(query, collection, k=k, where=where, where_document=where_document)
@@ -171,7 +166,7 @@ def rag(
 
     valid: list[int] = []
     invalid: list[int] = []
-    provider = llm.provider if multi_query else None
+    provider = llm.provider if query_variants else None
     input_tokens = output_tokens = None  # unknown until the answering call is made
     if not sources:
         outcome, answer = "no_evidence", NO_EVIDENCE_MESSAGE
@@ -194,7 +189,7 @@ def rag(
         "settings": {
             "k": k, "max_distance": max_distance,
             "max_prompt_chars": max_prompt_chars, "context_budget": context_budget,
-            "where": where, "where_document": where_document, "multi_query": multi_query,
+            "where": where, "where_document": where_document, "query_variants": query_variants,
         },
         "variants": variants,
         "retrieved": [
