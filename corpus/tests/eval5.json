@@ -1,0 +1,42 @@
+[
+  {
+    "question": "What is a closure in JavaScript?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Closures-000-3f89c664"
+    ],
+    "must_answer": true,
+    "kind": "direct"
+  },
+  {
+    "question": "During module linking, what does the engine do for each imported name?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Modules/Module_graph-005-e9c7a06d"
+    ],
+    "must_answer": true,
+    "kind": "direct"
+  },
+  {
+    "question": "What does reduce() do when no initialValue is given?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Indexed_collections-014-bc4e0c55"
+    ],
+    "must_answer": true,
+    "kind": "direct"
+  },
+  {
+    "question": "Which three factors classify a property of a JavaScript object?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Enumerability_and_ownership_of_properties-000-993f3f18"
+    ],
+    "must_answer": true,
+    "kind": "direct"
+  },
+  {
+    "question": "What happens to an ArrayBuffer when it is passed to another execution context, compared to a SharedArrayBuffer?",
+    "relevant_chunks": [
+      "Web/JavaScript/Guide/Typed_arrays-002-2c89ac82"
+    ],
+    "must_answer": true,
+    "kind": "direct"
+  }
+]

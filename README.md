@@ -218,7 +218,7 @@ independent measurement and takes `-v` to list every case:
 d-retrieval cost
 d-retrieval latency -v
 d-retrieval stages -v
-d-retrieval judge --dataset data/eval5.json
+d-retrieval judge --dataset corpus/tests/eval5.json
 ```
 
 Each one runs the questions itself and does not write the query log, so running several repeats
