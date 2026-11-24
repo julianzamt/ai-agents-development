@@ -152,7 +152,7 @@ class AnsweringTests(unittest.TestCase):
                   "per_case": [
                       {"question": "q1?", "outcome": "answered", "answer": "x",
                        "judgment": Judgment(faithfulness=5, relevance=4, justification="Supported."),
-                       "prompt": "<question>\nq1?\n</question>\n\n<evidence>\nev\n</evidence>"},
+                       "prompt": "<evidence>\nev\n</evidence>\n\n<question>\nq1?\n</question>"},
                       {"question": "q2?", "outcome": "abstained", "answer": "y", "judgment": None,
                        "prompt": None}]},
         "abstention": {"cases": 2, "outcomes": {"no_evidence": 1, "abstained": 0, "answered": 1},
@@ -214,21 +214,24 @@ class AnsweringTests(unittest.TestCase):
     def test_judge(self):
         output, _, fake = self.run_command("judge", "-v")
         self.assertIn("faithfulness: 4.50/5  relevance: 3.00/5", output)
-        self.assertIn("faithfulness=5 relevance=4  q1?", output)
-        self.assertIn("not judged (abstained)  q2?", output)
+        self.assertIn("faithfulness 5/5  relevance 4/5", output)
+        self.assertIn("2. q2?  [abstained]", output)
         self.assertNotIn("cost", output)
         self.assertEqual(len(fake.call_args.args), 2)
 
 
-    def test_judge_verbose_shows_prompt_and_response(self):
+    def test_judge_verbose_shows_prompt_response_and_judgment_in_order(self):
         output, _, _ = self.run_command("judge", "-v")
-        self.assertIn("Judge system prompt:", output)
-        self.assertEqual(output.count("Judge system prompt:"), 1)
-        self.assertIn("Prompt:", output)
-        self.assertIn("<evidence>", output)
-        self.assertIn("Response:", output)
-        self.assertIn('"justification": "Supported."', output)
-        self.assertEqual(output.count("Prompt:"), 1)  # the unjudged case has none
+        first_case = output.split("2. q2?")[0]
+        positions = [first_case.index(text) for text in
+                     ("── Prompt", "<evidence>", "── Model response", "\n       x\n", "── Judge", "Supported.")]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("not judged (abstained)", output)
+
+    def test_score_colors(self):
+        from ia_agents.rag.diagnose_cli import score_style
+        self.assertEqual([score_style(n) for n in (5, 4, 3, 2, 1)], ["green", "green", "orange", "red", "red"])
+
     def test_passes_settings_to_the_run(self):
         _, runs, _ = self.run_command("latency", "-k", "2", "--max-distance", "0.9", "--max-prompt-chars", "5000")
         kwargs = runs.call_args.kwargs

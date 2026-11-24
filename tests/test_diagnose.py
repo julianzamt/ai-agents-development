@@ -11,6 +11,7 @@ from unittest.mock import patch
 from pydantic import ValidationError
 
 from ia_agents.rag.config import load_config
+from ia_agents.rag.pipeline import build_prompt
 from ia_agents.rag.diagnose import (
     SYSTEM_JUDGE, Judgment, diagnose_retrieval, judge, classify_error, cost_report, cost_usd, judge_runs, latency_report, load_eval_dataset, retrieval_metrics,
     run_cases, stage_report, abstention_report,
@@ -335,11 +336,13 @@ class JudgeTests(unittest.TestCase):
         self.assertIn("<evidence>\ncontext for a?\n</evidence>", llm.calls[0]["prompt"])
         self.assertIn("<answer>\nthe answer\n</answer>", llm.calls[0]["prompt"])
 
-    def test_keeps_the_prompt_the_judge_received(self):
+    def test_keeps_the_prompt_the_answering_model_received(self):
         llm = FakeLLM(Judgment(faithfulness=5, relevance=5, justification="ok"))
-        report = judge_runs([make_run("a?"), make_run("b?", outcome="abstained")], llm)
-        self.assertEqual(report["per_case"][0]["prompt"], llm.calls[0]["prompt"])
-        self.assertIsNone(report["per_case"][1]["prompt"])
+        runs = [make_run("a?"), make_run("b?", outcome="abstained"), make_run("c?", outcome="no_evidence")]
+        report = judge_runs(runs, llm)
+        self.assertEqual(report["per_case"][0]["prompt"], build_prompt("a?", "context for a?"))
+        self.assertEqual(report["per_case"][1]["prompt"], build_prompt("b?", "context for b?"))
+        self.assertIsNone(report["per_case"][2]["prompt"])
 
     def test_nothing_answered_gives_no_scores(self):
         report = judge_runs([make_run(outcome="no_evidence")], FakeLLM(None))

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from ..llm import LLMClient
 from .embed import search
-from .pipeline import rag
+from .pipeline import build_prompt, rag
 
 SYSTEM_JUDGE = """You are a strict evaluator of retrieval-augmented answers. You receive a question, the evidence the system had available and the answer it generated.
 
@@ -321,7 +321,8 @@ def judge_runs(runs: list[dict], llm: LLMClient | None = None) -> dict:
 
     Returns ``{"cases", "answered", "faithfulness", "relevance", "per_case"}``: the scores are means
     over the judged runs (None if none), and ``per_case`` has each run's ``question``, ``outcome``,
-    ``answer``, ``judgment`` and the judge's ``prompt`` (both None if not judged).
+    ``answer``, ``judgment`` (None if not judged) and ``prompt``, the prompt the answering model
+    received (None for "no_evidence", where it was not called).
     """
     llm = llm or LLMClient()
     per_case = []
@@ -330,7 +331,7 @@ def judge_runs(runs: list[dict], llm: LLMClient | None = None) -> dict:
         question = run["case"]["question"]
         answered = outcome == "answered"
         judgment = judge(question, run["context"], run["answer"], llm) if answered else None
-        prompt = judge_prompt(question, run["context"], run["answer"]) if answered else None
+        prompt = build_prompt(question, run["context"]) if outcome != "no_evidence" else None
         per_case.append({"question": question, "outcome": outcome, "answer": run["answer"],
                          "judgment": judgment, "prompt": prompt})
     judgments = [c["judgment"] for c in per_case if c["judgment"]]

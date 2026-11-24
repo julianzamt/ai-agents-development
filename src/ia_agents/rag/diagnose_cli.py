@@ -13,7 +13,7 @@ from ..llm import LLMClient
 from ..llm.config import PROJECT_ROOT
 from .config import DEFAULT_CONFIG_PATH, add_config_argument, config_for
 from .diagnose import (
-    SYSTEM_JUDGE, abstention_report, cost_report, diagnose_retrieval, judge_runs, latency_report, load_eval_dataset, retrieval_metrics,
+    abstention_report, cost_report, diagnose_retrieval, judge_runs, latency_report, load_eval_dataset, retrieval_metrics,
     run_cases, stage_report,
 )
 
@@ -30,7 +30,8 @@ def print_result(query: str, expected_chunk_id: str, result: dict) -> None:
         print(f"  {marker}{rank}. distance={chunk['distance']:.4f} id={chunk['chunk_id']}")
 
 
-STYLES = {"bold": "1", "dim": "2", "red": "31", "green": "32", "yellow": "33", "cyan": "36"}
+STYLES = {"bold": "1", "dim": "2", "red": "31", "green": "32", "yellow": "33", "cyan": "36",
+          "orange": "38;5;208"}
 
 
 def paint(text: str, *styles: str) -> str:
@@ -165,28 +166,35 @@ def print_abstention(result: dict, verbose: bool = False) -> None:
         print(f"  {kind:<15} {entry['cases']:>3} cases  abstention rate: {entry['abstention_rate']:.3f}")
 
 
-def print_block(title: str, text: str) -> None:
-    print("     " + paint(title, "cyan"))
-    for line in text.splitlines():
-        print("       " + paint(line, "dim"))
+def print_block(title: str, text: str, style: str | None = None) -> None:
+    """A titled section with its text indented below it."""
+    print("\n     " + paint(f"── {title} " + "─" * max(0, 60 - len(title)), "bold", "cyan"))
+    for line in text.splitlines() or [""]:
+        print("       " + (paint(line, style) if style else line))
+
+
+def score_style(score: int) -> str:
+    """Green for 4-5, orange for 3, red for 1-2."""
+    return "green" if score >= 4 else "orange" if score == 3 else "red"
 
 
 def print_judgments(result: dict, verbose: bool = False) -> None:
     if verbose:
-        print(paint("Judge system prompt:", "bold", "cyan"))
-        for line in SYSTEM_JUDGE.strip().splitlines():
-            print("  " + paint(line, "dim"))
         for number, case in enumerate(result["per_case"], start=1):
-            judgment = case["judgment"]
-            scores = (f"faithfulness={judgment.faithfulness} relevance={judgment.relevance}"
-                      if judgment else f"not judged ({case['outcome']})")
-            print(f"\n{number:>3}. {scores}  " + paint(case["question"], "bold"))
-            if judgment:
-                print(f"       {judgment.justification}")
+            print(paint(f"\n{'=' * 72}", "dim"))
+            print(f"{number:>3}. " + paint(case["question"], "bold") + "  " + paint(f"[{case['outcome']}]", "dim"))
             if case.get("prompt"):
-                print_block("Prompt:", case["prompt"])
+                print_block("Prompt", case["prompt"], "dim")
+            print_block("Model response", case["answer"])
+            judgment = case["judgment"]
             if judgment:
-                print_block("Response:", judgment.model_dump_json(indent=2))
+                scores = "  ".join(
+                    paint(f"{name} {value}/5", score_style(value), "bold")
+                    for name, value in (("faithfulness", judgment.faithfulness), ("relevance", judgment.relevance)))
+                print_block("Judge", scores)
+                print("       " + judgment.justification)
+            else:
+                print_block("Judge", paint(f"not judged ({case['outcome']})", "dim"))
         print()
     print(f"Cases that must be answered: {result['cases']} | answered: {result['answered']}")
     if result["faithfulness"] is not None:
