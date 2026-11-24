@@ -3,7 +3,7 @@
 import json
 import os
 
-from .config import CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS
+from .config import CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS, http_timeout
 from .conversation import request_messages
 
 def call_bedrock(prompt, system, temperature, max_tokens, history=None, schema=None, tools=None):
@@ -17,7 +17,7 @@ def call_bedrock(prompt, system, temperature, max_tokens, history=None, schema=N
         config=Config(
             connect_timeout=CONNECT_TIMEOUT_SECONDS,
             read_timeout=READ_TIMEOUT_SECONDS,
-            retries={"total_max_attempts": 1},
+            retries={"total_max_attempts": 1, "mode": "standard"},
         ),
     ) as client:
         request = {
@@ -47,7 +47,7 @@ def call_anthropic(prompt, system, temperature, max_tokens, history=None, schema
     from anthropic import Anthropic
 
     with Anthropic(
-        api_key=os.environ["ANTHROPIC_API_KEY"], max_retries=0, timeout=READ_TIMEOUT_SECONDS
+        api_key=os.environ["ANTHROPIC_API_KEY"], max_retries=0, timeout=http_timeout()
     ) as client:
         request = {
             "model": os.environ.get("ANTHROPIC_MODEL_ID", "claude-sonnet-4-6"),
@@ -74,7 +74,7 @@ def call_openai(prompt, system, temperature, max_tokens, history=None, schema=No
         messages.append({"role": "system", "content": system})
     messages.extend(request_messages("openai", history, prompt))
     with OpenAI(
-        api_key=os.environ["OPENAI_API_KEY"], max_retries=0, timeout=READ_TIMEOUT_SECONDS
+        api_key=os.environ["OPENAI_API_KEY"], max_retries=0, timeout=http_timeout()
     ) as client:
         response = client.chat.completions.create(
             model=os.environ.get("OPENAI_MODEL_ID", "gpt-4o"),
@@ -128,7 +128,7 @@ def call_ollama(prompt, system, temperature, max_tokens, history=None, schema=No
     if system is not None:
         messages.append({"role": "system", "content": system})
     messages.extend(request_messages("ollama", history, prompt))
-    client = Client(host=os.environ.get("OLLAMA_HOST"), timeout=READ_TIMEOUT_SECONDS)
+    client = Client(host=os.environ.get("OLLAMA_HOST"), timeout=http_timeout())
     try:
         response = client.chat(
             model=os.environ.get("OLLAMA_MODEL_ID", "llama3.1"),

@@ -17,6 +17,14 @@ CONNECT_TIMEOUT_SECONDS = 10
 READ_TIMEOUT_SECONDS = 60 # Max wait for receiving a response. Used also for time in between chunks if streaming.
 TRANSPORT_MAX_ATTEMPTS = 3
 
+
+def http_timeout():
+    """httpx timeout with separate connect and read limits, for SDKs built on httpx."""
+    import httpx
+
+    return httpx.Timeout(READ_TIMEOUT_SECONDS, connect=CONNECT_TIMEOUT_SECONDS)
+
+
 DEFAULT_SYSTEM = None
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_MAX_TOKENS = 500

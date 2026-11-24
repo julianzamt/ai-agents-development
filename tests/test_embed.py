@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import httpx
 from google.genai import types, _transformers
 
 from ia_agents.rag.embed import GoogleEmbeddingProvider, get_embedding_provider, search
@@ -217,6 +218,18 @@ class IngestionLabTests(unittest.TestCase):
                 get_provider.assert_not_called()
                 collection.query.assert_not_called()
 
+    def test_embedding_clients_use_the_transport_policy(self):
+        with patch.dict("os.environ", {"GOOGLE_API_KEY": "k", "OPENAI_API_KEY": "k"}), \
+                patch("ia_agents.rag.embed.genai.Client") as google, patch("openai.OpenAI") as openai, \
+                patch("ollama.Client") as ollama:
+            for name in ("google", "openai", "ollama"):
+                get_embedding_provider(name)
+            http_options = google.call_args.kwargs["http_options"]
+            self.assertEqual((http_options.timeout, http_options.retry_options.attempts), (60_000, 3))
+            self.assertEqual(openai.call_args.kwargs["timeout"], httpx.Timeout(60, connect=10))
+            self.assertEqual(openai.call_args.kwargs["max_retries"], 2)
+            self.assertEqual(ollama.call_args.kwargs["timeout"], httpx.Timeout(60, connect=10))
+
     def test_voyage_marks_input_type_and_batches_requests(self):
         with patch.dict("os.environ", {"VOYAGE_API_KEY": "test-key"}), \
                 patch("voyageai.Client") as client_class:
@@ -225,7 +238,7 @@ class IngestionLabTests(unittest.TestCase):
                 embeddings=[[float(len(text)), 0.0] for text in texts],
             )
             provider = get_embedding_provider("voyage")
-            client_class.assert_called_once_with(api_key="test-key")
+            client_class.assert_called_once_with(api_key="test-key", timeout=60, max_retries=2)
             self.assertEqual((provider.name, provider.model), ("voyage", "voyage-4"))
 
             provider.batch_size = 2

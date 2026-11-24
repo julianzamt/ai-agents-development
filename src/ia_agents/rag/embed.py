@@ -5,6 +5,9 @@ from google import genai
 from google.genai import types
 import chromadb
 
+# Same transport policy as generation; embeddings have no retry layer of their own, so the SDK is their single retry point.
+from ..llm.config import READ_TIMEOUT_SECONDS, TRANSPORT_MAX_ATTEMPTS, http_timeout
+
 load_dotenv()
 
 
@@ -42,7 +45,13 @@ class GoogleEmbeddingProvider:
 
     def __init__(self, model: str | None = None) -> None:
         self.model = model or os.environ.get("GOOGLE_EMBEDDING_MODEL_ID", "gemini-embedding-2")
-        self.client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
+        self.client = genai.Client(
+            api_key=os.environ["GOOGLE_API_KEY"],
+            http_options=types.HttpOptions(
+                timeout=READ_TIMEOUT_SECONDS * 1_000,
+                retry_options=types.HttpRetryOptions(attempts=TRANSPORT_MAX_ATTEMPTS),
+            ),
+        )
 
     def _embed(self, texts: list[str], purpose: Literal["document", "query"], titles: list[str | None] | None = None):
         if not texts:
@@ -94,7 +103,9 @@ class OpenAIEmbeddingProvider:
         from openai import OpenAI
 
         self.model = model or os.environ.get("OPENAI_EMBEDDING_MODEL_ID", "text-embedding-3-small")
-        self.client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+        self.client = OpenAI(
+            api_key=os.environ["OPENAI_API_KEY"], timeout=http_timeout(), max_retries=TRANSPORT_MAX_ATTEMPTS - 1,
+        )
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -116,7 +127,8 @@ class OllamaEmbeddingProvider:
         from ollama import Client
 
         self.model = model or os.environ.get("OLLAMA_EMBEDDING_MODEL_ID", "nomic-embed-text")
-        self.client = Client(host=os.environ.get("OLLAMA_HOST"))
+        # Local server: timeouts only, no retries.
+        self.client = Client(host=os.environ.get("OLLAMA_HOST"), timeout=http_timeout())
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -140,7 +152,9 @@ class VoyageEmbeddingProvider:
         import voyageai
 
         self.model = model or os.environ.get("VOYAGE_EMBEDDING_MODEL_ID", "voyage-4")
-        self.client = voyageai.Client(api_key=os.environ["VOYAGE_API_KEY"])
+        self.client = voyageai.Client(
+            api_key=os.environ["VOYAGE_API_KEY"], timeout=READ_TIMEOUT_SECONDS, max_retries=TRANSPORT_MAX_ATTEMPTS - 1,
+        )
 
     def _embed(self, texts: list[str], input_type: Literal["document", "query"]) -> list[list[float]]:
         # input_type makes Voyage prepend its retrieval prompt; it matters for quality.

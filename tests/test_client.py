@@ -271,7 +271,7 @@ class ClientTests(unittest.TestCase):
             config = constructor.call_args.kwargs["config"]
             self.assertEqual(config.connect_timeout, 10)
             self.assertEqual(config.read_timeout, 60)
-            self.assertEqual(config.retries["total_max_attempts"], 1)
+            self.assertEqual(config.retries, {"total_max_attempts": 1, "mode": "standard"})
             arguments = sdk.converse.call_args.kwargs
             self.assertEqual(arguments["system"], [{"text": "Be concise"}])
             self.assertEqual(arguments["inferenceConfig"], {"temperature": 0, "maxTokens": 123})
@@ -284,7 +284,7 @@ class ClientTests(unittest.TestCase):
                 SimpleNamespace(type="text", text="Paris"),
             ]
             self.assertIs(providers.call_anthropic("Capital?", "Be concise", 0, 123), sdk.messages.create.return_value)
-            self.assertEqual(constructor.call_args.kwargs["timeout"], 60)
+            self.assertEqual(constructor.call_args.kwargs["timeout"], httpx.Timeout(60, connect=10))
             self.assertEqual(constructor.call_args.kwargs["max_retries"], 0)
             arguments = sdk.messages.create.call_args.kwargs
             self.assertEqual(arguments["system"], "Be concise")
@@ -297,7 +297,7 @@ class ClientTests(unittest.TestCase):
                 SimpleNamespace(message=SimpleNamespace(content="Paris"))
             ]
             self.assertIs(providers.call_openai("Capital?", "Be concise", 0, 123), sdk.chat.completions.create.return_value)
-            self.assertEqual(constructor.call_args.kwargs["timeout"], 60)
+            self.assertEqual(constructor.call_args.kwargs["timeout"], httpx.Timeout(60, connect=10))
             self.assertEqual(constructor.call_args.kwargs["max_retries"], 0)
             arguments = sdk.chat.completions.create.call_args.kwargs
             self.assertEqual(arguments["messages"][0], {"role": "system", "content": "Be concise"})
@@ -309,7 +309,7 @@ class ClientTests(unittest.TestCase):
             sdk = constructor.return_value
             sdk.chat.return_value.message.content = "Paris"
             self.assertIs(providers.call_ollama("Capital?", "Be concise", 0, 123), sdk.chat.return_value)
-            self.assertEqual(constructor.call_args.kwargs["timeout"], 60)
+            self.assertEqual(constructor.call_args.kwargs["timeout"], httpx.Timeout(60, connect=10))
             arguments = sdk.chat.call_args.kwargs
             self.assertEqual(arguments["messages"][0], {"role": "system", "content": "Be concise"})
             self.assertEqual(arguments["options"], {"temperature": 0, "num_predict": 123})
